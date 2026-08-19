@@ -1275,3 +1275,27 @@ input[type="range"]::-moz-range-thumb {
   scrollbar-width: thin;
   scrollbar-color: var(--border-hi) transparent;
 }
+
+/* ------------------------------------------------- Installiert auf dem Geraet */
+
+/*
+ * Als installierte App laeuft die Seite bis unter die Statusleiste und den
+ * Homebalken - viewport-fit=cover verlangt, dass man sich selbst darum
+ * kuemmert. Ohne diese Abstaende sitzt der Name unter der Uhrzeit.
+ *
+ * Steht bewusst am Ende der Datei: die Werte muessen die Abstaende aus den
+ * Breitenabfragen ueberschreiben, nicht umgekehrt. Am Schreibtisch sind alle
+ * vier Einschuebe null, dort aendert der Block nichts.
+ */
+.app {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.kopf {
+  padding-top: calc(0.875rem + env(safe-area-inset-top));
+}
+
+.controls {
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Latent — Filmemulation im Browser",
+  "short_name": "Latent",
+  "description": "Fotos durch echte Filmemulation entwickeln: Dichtekurve pro Farbschicht, Lichthof, Korn, Scannerprofile. Alles lokal, ohne Konto.",
+  "lang": "de",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#141210",
+  "theme_color": "#141210",
+  "categories": ["photo", "graphics", "utilities"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
