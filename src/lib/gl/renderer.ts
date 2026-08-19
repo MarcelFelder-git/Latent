@@ -58,6 +58,38 @@ export interface Crop {
 
 export const FULL_CROP: Crop = { x: 0, y: 0, w: 1, h: 1 };
 
+/**
+ * Hoehe eines Randstreifens, als Anteil der Gesamtausgabe. Echtes Kleinbild
+ * ist 35 mm hoch bei 24 mm Bildhoehe, der Rand macht also gut 15 Prozent je
+ * Seite aus. Etwas knapper gehalten, damit das Bild die Hauptsache bleibt.
+ */
+export const BORDER_FRACTION = 0.13;
+
+/** Perforationen ueber die Bildbreite. Kleinbild hat acht pro Vollformat. */
+const SPROCKETS = 8;
+
+/** Groesse der Textur mit der Randschrift. */
+const LABEL_W = 1024;
+const LABEL_H = 64;
+
+/**
+ * Ein 2D-Canvas, das im Fenster wie im Worker funktioniert - der Export
+ * erzeugt die Randschrift im Worker, wo es kein document gibt.
+ */
+function make2D(w: number, h: number) {
+  if (typeof OffscreenCanvas !== "undefined") {
+    const c = new OffscreenCanvas(w, h);
+    const ctx = c.getContext("2d");
+    return ctx ? { canvas: c as unknown as TexImageSource, ctx } : null;
+  }
+  if (typeof document === "undefined") return null;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  return ctx ? { canvas: c as unknown as TexImageSource, ctx } : null;
+}
+
 export interface RenderParams {
   stock: FilmStock;
   scanner: ScannerProfile;
@@ -77,6 +109,12 @@ export interface RenderParams {
   halation: number;
   /** 0 = keine Vignette. */
   vignette: number;
+  /**
+   * Filmrand mit Perforation und Randschrift. Optional, weil er fuer
+   * Vorschaubilder und das Vergleichsblatt nicht gewollt ist - dort geht es
+   * um die Emulsion, nicht um die Aufmachung.
+   */
+  border?: boolean;
 }
 
 /** Drei Kanalwerte auf ihren Mittelwert ziehen - fuer Schwarzweissfilm. */
@@ -166,6 +204,9 @@ export class FilmRenderer {
 
   private imageWidth = 0;
   private imageHeight = 0;
+
+  private labelTex: WebGLTexture | null = null;
+  private labelText = "";
 
   /**
    * RGBA16F als Zwischenformat. Hier nicht optional: der Szenenpuffer haelt
@@ -327,9 +368,44 @@ export class FilmRenderer {
     this.haloNarrow = this.makeTarget(hw, hh);
   }
 
-  /** Ausgabegroesse in Pixeln, nach Beschnitt und Deckelung. */
+  /** Ausgabegroesse in Pixeln, nach Beschnitt und Deckelung (ohne Rand). */
   get outputSize(): { width: number; height: number } {
     return { width: this.imageWidth, height: this.imageHeight };
+  }
+
+  /**
+   * Randschrift als Textur. Wird nur neu gezeichnet, wenn sich der Text
+   * aendert - das passiert beim Filmwechsel, nicht bei jedem Regler.
+   */
+  private ensureLabel(text: string): void {
+    if (this.labelTex && this.labelText === text) return;
+    const gl = this.gl;
+    const flaeche = make2D(LABEL_W, LABEL_H);
+    if (!flaeche) return;
+    const { canvas, ctx } = flaeche;
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, LABEL_W, LABEL_H);
+    ctx.fillStyle = "#fff";
+    ctx.textBaseline = "middle";
+    // Generisches sans-serif statt system-ui: im Worker ist nicht garantiert,
+    // dass die Schriftauswahl des Systems aufgeloest wird.
+    ctx.font = "600 30px sans-serif";
+    ctx.fillText(text, 26, LABEL_H / 2 + 1);
+    ctx.font = "22px sans-serif";
+    ctx.globalAlpha = 0.75;
+    const rechts = "FILM LAB";
+    ctx.fillText(rechts, LABEL_W - 26 - ctx.measureText(rechts).width, LABEL_H / 2 + 1);
+    ctx.globalAlpha = 1;
+
+    if (!this.labelTex) this.labelTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.labelTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    this.labelText = text;
   }
 
   get hasImage(): boolean {
@@ -354,6 +430,17 @@ export class FilmRenderer {
       return;
 
     const { stock, scanner } = p;
+
+    // Der Rand vergroessert nur die Ausgabe, nicht die Zwischenpuffer - die
+    // bleiben auf Bildgroesse, der Rand entsteht erst im letzten Durchgang.
+    const b = p.border ? BORDER_FRACTION : 0;
+    const zielHoehe = Math.max(1, Math.round(this.imageHeight / (1 - 2 * b)));
+    if (this.canvas.width !== this.imageWidth || this.canvas.height !== zielHoehe) {
+      this.canvas.width = this.imageWidth;
+      this.canvas.height = zielHoehe;
+    }
+    if (p.border) this.ensureLabel(`${stock.name.toUpperCase()}  ${stock.iso}`);
+
     gl.bindVertexArray(this.vao);
 
     // --- 1) Szene: lineares Licht -------------------------------------
@@ -468,6 +555,15 @@ export class FilmRenderer {
     gl.uniform1f(this.developPass.loc("uWhitePoint"), scanner.whitePoint);
 
     gl.uniform1f(this.developPass.loc("uStrength"), p.strength);
+    gl.uniform2f(this.developPass.loc("uCropOffset"), this.crop.x, this.crop.y);
+    gl.uniform2f(this.developPass.loc("uCropSize"), this.crop.w, this.crop.h);
+
+    gl.uniform1f(this.developPass.loc("uBorder"), p.border ? 1 : 0);
+    gl.uniform1f(this.developPass.loc("uBorderFraction"), BORDER_FRACTION);
+    gl.uniform1f(this.developPass.loc("uSprockets"), SPROCKETS);
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, this.labelTex);
+    gl.uniform1i(this.developPass.loc("uLabel"), 4);
     this.drawTo(null);
 
     gl.bindVertexArray(null);
@@ -480,6 +576,7 @@ export class FilmRenderer {
     this.disposeTarget(this.haloB);
     this.disposeTarget(this.haloNarrow);
     if (this.imageTex) gl.deleteTexture(this.imageTex);
+    if (this.labelTex) gl.deleteTexture(this.labelTex);
     this.scenePass.dispose();
     this.highlightPass.dispose();
     this.blurPass.dispose();

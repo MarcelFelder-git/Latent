@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { FilmRenderer, type Crop, type RenderParams } from "../lib/gl/renderer";
+import {
+  BORDER_FRACTION,
+  FilmRenderer,
+  type Crop,
+  type RenderParams,
+} from "../lib/gl/renderer";
 
 interface ViewerProps {
   image: ImageBitmap | null;
@@ -155,10 +160,21 @@ export function Viewer({
         ref={frameRef}
         // Nach Beschnitt bestimmt der Ausschnitt das Verhaeltnis, nicht mehr
         // das Original - sonst laege der Rahmen neben dem Canvasinhalt.
+        //
+        // In der 1:1-Ansicht faellt das Verhaeltnis weg: dort ist der Rahmen
+        // ein Guckloch in voller Groesse des Bereichs, und das Canvas liegt
+        // absolut positioniert darin. Mit aspect-ratio waere der Rahmen auf
+        // 0x0 zusammengefallen, weil ihn nichts mehr aufspannt - das Bild
+        // verschwand dann komplett hinter overflow: hidden.
         style={
-          image
+          image && !zoomed
             ? {
-                aspectRatio: `${image.width * crop.w} / ${image.height * crop.h}`,
+                // Der Filmrand macht die Ausgabe hoeher - sonst laege der
+                // Rahmen wieder neben dem Canvasinhalt.
+                aspectRatio: `${image.width * crop.w} / ${
+                  (image.height * crop.h) /
+                  (params.border ? 1 - 2 * BORDER_FRACTION : 1)
+                }`,
               }
             : undefined
         }

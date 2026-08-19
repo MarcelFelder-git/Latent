@@ -83,6 +83,8 @@ interface ControlsProps {
   onComparison: () => void;
   formatId: string;
   onFormatChange: (id: string) => void;
+  border: boolean;
+  onBorderChange: (on: boolean) => void;
   onCopyLink: () => void;
   /** Text waehrend eines laufenden Exports, sonst null. */
   exportStatus: string | null;
@@ -113,6 +115,8 @@ export function Controls({
   onComparison,
   formatId,
   onFormatChange,
+  border,
+  onBorderChange,
   onCopyLink,
   exportStatus,
   canExport,
@@ -337,6 +341,14 @@ export function Controls({
         {formatId !== "frei" && (
           <p className="feld-hinweis">Im Bild ziehen verschiebt den Ausschnitt.</p>
         )}
+        <button
+          className="preset breit"
+          aria-pressed={border}
+          title="Perforation und Randschrift wie auf einem Laborscan"
+          onClick={() => onBorderChange(!border)}
+        >
+          Filmrand {border ? "an" : "aus"}
+        </button>
       </section>
 
       <section>

@@ -15,6 +15,7 @@ export interface DevelopOptions {
   scanner: ScannerProfile;
   adjustments: Adjustments;
   crop: Crop;
+  border: boolean;
   quality?: number;
 }
 
@@ -81,6 +82,7 @@ async function developInWorker(opts: DevelopOptions): Promise<Blob> {
       scanner: opts.scanner,
       adjustments: opts.adjustments,
       crop: opts.crop,
+      border: opts.border,
       quality: opts.quality ?? 0.94,
     };
     w.postMessage(req, [kopie]);
@@ -97,6 +99,7 @@ function developOnMainThread(opts: DevelopOptions): Promise<Blob> {
       stock: opts.stock,
       scanner: opts.scanner,
       ...opts.adjustments,
+      border: opts.border,
     });
     return new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(

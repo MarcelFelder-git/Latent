@@ -19,6 +19,7 @@ export interface ExportRequest {
   scanner: ScannerProfile;
   adjustments: Adjustments;
   crop: Crop;
+  border: boolean;
   quality: number;
 }
 
@@ -38,6 +39,7 @@ self.onmessage = async (event: MessageEvent<ExportRequest>) => {
       stock: req.stock,
       scanner: req.scanner,
       ...req.adjustments,
+      border: req.border,
     });
     const blob = await canvas.convertToBlob({
       type: "image/jpeg",

@@ -935,7 +935,15 @@ input[type="range"]::-moz-range-thumb {
 
 /* ------------------------------------------------------------ 1:1-Ansicht */
 
+/*
+ * In der 1:1-Ansicht ist der Rahmen ein Guckloch ueber den ganzen Bereich,
+ * nicht mehr die eingepasste Bildbox. Die Groesse muss explizit gesetzt
+ * werden: das Canvas liegt absolut positioniert darin und spannt den Rahmen
+ * damit nicht mehr auf.
+ */
 .frame.zoomed {
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
@@ -987,4 +995,10 @@ input[type="range"]::-moz-range-thumb {
 .frame.shiftable {
   cursor: move;
   touch-action: none;
+}
+
+.preset.breit {
+  margin-top: 0.5rem;
+  width: 100%;
+  border-radius: 3px;
 }

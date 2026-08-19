@@ -179,7 +179,25 @@ uniform float uBlackPoint;
 uniform float uWhitePoint;
 
 uniform float uStrength;       // 0 = Original, 1 = volle Emulation
+uniform vec2 uCropOffset;
+uniform vec2 uCropSize;
+
+// --- Filmrand ---------------------------------------------------------
+uniform float uBorder;         // 0 oder 1
+uniform float uBorderFraction; // Hoehe eines Randstreifens, Anteil der Ausgabe
+uniform float uSprockets;      // Perforationen ueber die Bildbreite
+uniform sampler2D uLabel;      // Randbeschriftung, weiss auf schwarz
 ${COMMON}
+
+/**
+ * Abstandsfunktion fuer ein Rechteck mit runden Ecken. Perforationen sind
+ * keine scharfen Rechtecke - die Ecken sind gerundet, damit der Film beim
+ * Transport nicht einreisst, und genau das erkennt das Auge wieder.
+ */
+float roundedBox(vec2 p, vec2 b, float r) {
+  vec2 q = abs(p) - b + r;
+  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
+}
 
 // Weiche, monotone Begrenzung: bildet (-inf, inf) auf (-k, k) ab.
 // Das ist der Fuss bzw. die Schulter der Kurve.
@@ -218,17 +236,48 @@ float valueNoise(vec2 p) {
 }
 
 void main() {
+  // --- Filmrand: Bildbereich vom Randstreifen trennen ------------------
+  // Der Rand ist Teil des gerenderten Bildes, nicht eine Ebene darueber -
+  // nur so zeigen Vorschau und Exportdatei dasselbe.
+  float b = uBorder > 0.5 ? uBorderFraction : 0.0;
+  float innerHeight = 1.0 - 2.0 * b;
+  vec2 inner = vec2(vUv.x, (vUv.y - b) / innerHeight);
+
+  if (uBorder > 0.5 && (vUv.y < b || vUv.y > 1.0 - b)) {
+    // Entwickelter, unbelichteter Filmtraeger erscheint im Positiv schwarz;
+    // wo gar kein Film liegt, faellt das Scannerlicht ungehindert durch.
+    vec3 traeger = vec3(0.04);
+
+    if (vUv.y > 1.0 - b) {
+      // Oberer Streifen: Perforation.
+      float t = (vUv.y - (1.0 - b)) / b;
+      vec2 zelle = vec2(fract(vUv.x * uSprockets) - 0.5, t - 0.5);
+      float d = roundedBox(zelle, vec2(0.27, 0.2), 0.08);
+      // Weiche Kante, damit die Loecher nicht ausfransen.
+      float loch = 1.0 - smoothstep(-0.01, 0.01, d);
+      traeger = mix(traeger, vec3(0.93), loch);
+    } else {
+      // Unterer Streifen: die vom Hersteller aufbelichtete Randschrift.
+      float t = vUv.y / b;
+      float schrift = texture(uLabel, vec2(vUv.x, 1.0 - t)).r;
+      traeger = mix(traeger, vec3(0.88), schrift);
+    }
+
+    fragColor = vec4(traeger, 1.0);
+    return;
+  }
+
   // --- Belichtung plus Streulicht -------------------------------------
   // Addition im Linearlicht und VOR der Kurve: Streulicht ist zusaetzliche
   // Belichtung, keine Aufhellung des fertigen Bildes.
-  vec3 scene = texture(uScene, vUv).rgb;
+  vec3 scene = texture(uScene, inner).rgb;
 
   // Zwei Streubreiten, pro Kanal gemischt. Langwelliges Licht dringt tiefer
   // in die Emulsion ein und streut dort breiter - der Lichthof ist innen
   // heller und wird nach aussen hin roter. Ein einzelner, eingefaerbter
   // Weichzeichner kann das nicht: der haette ueberall dieselbe Farbe.
-  vec3 eng = texture(uHalationNarrow, vUv).rgb;
-  vec3 weit = texture(uHalation, vUv).rgb;
+  vec3 eng = texture(uHalationNarrow, inner).rgb;
+  vec3 weit = texture(uHalation, inner).rgb;
   vec3 streulicht = mix(eng, weit, uHalationSpread);
   scene += streulicht * uHalationTint * uHalationStrength;
 
@@ -254,7 +303,7 @@ void main() {
   // Dieselbe Ueberlegung wie beim Lichthof, der auf einem festen Bruchteil
   // der Bildgroesse gerechnet wird.
   float aufloesung = max(uImageSize.x, uImageSize.y) / 2048.0;
-  vec2 gp = vUv * uImageSize / max(uGrainSize * aufloesung, 0.5);
+  vec2 gp = inner * uImageSize / max(uGrainSize * aufloesung, 0.5);
   // Farbfilm hat drei Emulsionsschichten, die unabhaengig voneinander koernen
   // - deshalb drei getrennte Rauschabtastungen, jede mit eigener Korngroesse.
   // Schwarzweissfilm hat nur eine Schicht: dort muss dasselbe Korn in allen
@@ -278,7 +327,7 @@ void main() {
   // --- Objektiv -------------------------------------------------------
   // Streng genommen nicht der Film, sondern die Kamera. Traegt aber viel
   // dazu bei, dass ein Bild "analog" gelesen wird.
-  float rad = length(vUv - 0.5) * 1.4142;
+  float rad = length(inner - 0.5) * 1.4142;
   c *= max(1.0 - uVignette * rad * rad, 0.0);
 
   // --- Scanner --------------------------------------------------------
@@ -301,7 +350,7 @@ void main() {
   c += uScannerLift * (1.0 - clamp(c, 0.0, 1.0));
 
   // --- Ueberblendung zum Original -------------------------------------
-  vec3 original = texture(uImage, imageUv(vUv)).rgb;
+  vec3 original = texture(uImage, uCropOffset + imageUv(inner) * uCropSize).rgb;
   c = mix(original, c, uStrength);
 
   fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);

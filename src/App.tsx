@@ -54,6 +54,7 @@ export default function App() {
   const [customPresets, setCustomPresets] = useState<Preset[]>(() => loadCustomPresets());
   const [formatId, setFormatId] = useState(DEFAULT_FORMAT.id);
   const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
+  const [border, setBorder] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -358,12 +359,13 @@ export default function App() {
         scanner,
         adjustments,
         crop: eigenerCrop,
+        border,
       });
       if (!photo.file) return blob;
       const exif = await readExifSegment(photo.file);
       return exif ? spliceExif(blob, exif) : blob;
     },
-    [stock, scanner, adjustments, format.ratio, cropOffset],
+    [stock, scanner, adjustments, format.ratio, cropOffset, border],
   );
 
   const download = useCallback((blob: Blob, name: string) => {
@@ -502,7 +504,7 @@ export default function App() {
             <Viewer
               image={active.bitmap}
               originalUrl={active.url}
-              params={{ stock, scanner, ...adjustments }}
+              params={{ stock, scanner, ...adjustments, border }}
               onError={setError}
               canvasRef={canvasRef}
               onPick={handlePick}
@@ -582,6 +584,8 @@ export default function App() {
         onComparison={() => void handleComparison()}
         formatId={formatId}
         onFormatChange={handleFormat}
+        border={border}
+        onBorderChange={setBorder}
         onCopyLink={() => void handleCopyLink()}
         exportStatus={exportStatus}
         canExport={active !== null}
