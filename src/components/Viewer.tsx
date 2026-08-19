@@ -36,6 +36,12 @@ export function Viewer({
   const [split, setSplit] = useState(0.5);
   const [dragging, setDragging] = useState(false);
 
+  // 1:1-Ansicht. Korn und Lichthof sind Erscheinungen auf Pixelebene - in
+  // einer eingepassten Vorschau lassen sie sich schlicht nicht beurteilen.
+  const [zoomed, setZoomed] = useState(false);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const panStart = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+
   // Renderer einmalig aufbauen.
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -62,6 +68,7 @@ export function Viewer({
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     }
+    setPan({ x: 0, y: 0 });
     // params bewusst nicht in den Abhaengigkeiten: das erledigt der Effekt
     // darunter. Hier geht es nur um den Bildwechsel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,6 +91,35 @@ export function Viewer({
     setSplit(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)));
   }, []);
 
+  /** Verschiebung so begrenzen, dass nie ueber den Bildrand hinausgezogen wird. */
+  const clampPan = useCallback((x: number, y: number) => {
+    const frame = frameRef.current;
+    const canvas = canvasRef.current;
+    if (!frame || !canvas) return { x: 0, y: 0 };
+    const maxX = Math.max(0, (canvas.width - frame.clientWidth) / 2);
+    const maxY = Math.max(0, (canvas.height - frame.clientHeight) / 2);
+    return {
+      x: Math.min(maxX, Math.max(-maxX, x)),
+      y: Math.min(maxY, Math.max(-maxY, y)),
+    };
+  }, [canvasRef]);
+
+  const toggleZoom = useCallback(() => {
+    setZoomed((z) => {
+      if (!z) {
+        // Vergleich und Zoom schliessen sich aus: die Ueberlagerung sitzt am
+        // Rahmen, nicht am verschobenen Canvas, und wuerde daneben liegen.
+        setComparing(false);
+        setPan({ x: 0, y: 0 });
+      }
+      return !z;
+    });
+  }, []);
+
+  const klassen = ["frame"];
+  if (picking) klassen.push("picking");
+  if (zoomed) klassen.push("zoomed");
+
   return (
     <div className="viewer">
       {/*
@@ -94,9 +130,10 @@ export function Viewer({
         Box selbst aus, und die Ueberlagerungen sitzen deckungsgleich.
       */}
       <div
-        className={picking ? "frame picking" : "frame"}
+        className={klassen.join(" ")}
         ref={frameRef}
         style={image ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
+        onDoubleClick={toggleZoom}
         onClick={(e) => {
           if (!picking) return;
           const rect = e.currentTarget.getBoundingClientRect();
@@ -109,10 +146,33 @@ export function Viewer({
           // einem beim naechsten Mal versehentlich den Abgleich kaputt.
           setPicking(false);
         }}
+        onPointerDown={(e) => {
+          if (!zoomed || picking) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          panStart.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+        }}
+        onPointerMove={(e) => {
+          const start = panStart.current;
+          if (!start) return;
+          setPan(
+            clampPan(start.px + (e.clientX - start.x), start.py + (e.clientY - start.y)),
+          );
+        }}
+        onPointerUp={(e) => {
+          if (panStart.current) e.currentTarget.releasePointerCapture(e.pointerId);
+          panStart.current = null;
+        }}
       >
-        <canvas ref={canvasRef} />
+        <canvas
+          ref={canvasRef}
+          style={
+            zoomed
+              ? { transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px))` }
+              : undefined
+          }
+        />
 
-        {comparing && originalUrl && (
+        {comparing && originalUrl && !zoomed && (
           <>
             <img
               className="compare"
@@ -131,6 +191,7 @@ export function Viewer({
               aria-valuemax={100}
               aria-valuenow={Math.round(split * 100)}
               onPointerDown={(e) => {
+                e.stopPropagation();
                 e.currentTarget.setPointerCapture(e.pointerId);
                 setDragging(true);
               }}
@@ -152,6 +213,17 @@ export function Viewer({
         <div className="frame-tools">
           <button
             className="compare-toggle"
+            aria-pressed={zoomed}
+            title="Korn und Lichthof in Originalgroesse beurteilen (oder Doppelklick)"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleZoom();
+            }}
+          >
+            {zoomed ? "Einpassen" : "1:1"}
+          </button>
+          <button
+            className="compare-toggle"
             aria-pressed={picking}
             title="Auf eine Stelle klicken, die neutral grau sein soll"
             onClick={(e) => {
@@ -164,6 +236,7 @@ export function Viewer({
           <button
             className="compare-toggle"
             aria-pressed={comparing}
+            disabled={zoomed}
             onClick={(e) => {
               e.stopPropagation();
               setComparing((c) => !c);

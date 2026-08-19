@@ -241,7 +241,14 @@ void main() {
   // --- Korn -----------------------------------------------------------
   // In Bildkoordinaten, nicht in Bildschirmkoordinaten: das Korn sitzt im
   // Film, es darf beim Zoomen nicht mitwachsen.
-  vec2 gp = vUv * uImageSize / max(uGrainSize, 0.5);
+  // Korn ist eine Eigenschaft des Films, keine der Scanaufloesung - es muss
+  // ein konstanter Bruchteil des Bildes bleiben. Ohne diese Normierung waere
+  // das Korn im Export mit 4096 Pixeln halb so grob wie in der Vorschau mit
+  // 2048, die Vorschau wuerde also etwas anderes zeigen als die Ausgabedatei.
+  // Dieselbe Ueberlegung wie beim Lichthof, der auf einem festen Bruchteil
+  // der Bildgroesse gerechnet wird.
+  float aufloesung = max(uImageSize.x, uImageSize.y) / 2048.0;
+  vec2 gp = vUv * uImageSize / max(uGrainSize * aufloesung, 0.5);
   // Farbfilm hat drei Emulsionsschichten, die unabhaengig voneinander koernen
   // - deshalb drei getrennte Rauschabtastungen, jede mit eigener Korngroesse.
   // Schwarzweissfilm hat nur eine Schicht: dort muss dasselbe Korn in allen

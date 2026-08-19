@@ -2,19 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controls } from "./components/Controls";
 import { Viewer } from "./components/Viewer";
 import { NEUTRAL, type Adjustments } from "./lib/film/adjustments";
-import type { Preset } from "./lib/film/presets";
 import {
-  loadRecipes,
-  removeRecipe,
-  saveRecipe,
-  type Recipe,
-} from "./lib/film/recipes";
-import { neutralizeFrom } from "./lib/film/whitebalance";
+  BUILTIN_PRESETS,
+  loadCustomPresets,
+  removeCustomPreset,
+  saveCustomPreset,
+  type Preset,
+} from "./lib/film/presets";
 import { DEFAULT_SCANNER, scannerBySlug } from "./lib/film/scanners";
 import { DEFAULT_STOCK, STOCKS, stockBySlug } from "./lib/film/stocks";
+import { neutralizeFrom } from "./lib/film/whitebalance";
 import { createDemoImage } from "./lib/demoImage";
 import { readExifSegment, spliceExif } from "./lib/exif";
 import { EXPORT_MAX_EDGE, FilmRenderer } from "./lib/gl/renderer";
+import { decodeLook, lookUrl } from "./lib/lookLink";
 import { renderStockThumbnails } from "./lib/thumbnails";
 
 interface Photo {
@@ -43,10 +44,11 @@ export default function App() {
   const [adjustments, setAdjustments] = useState<Adjustments>(NEUTRAL);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [hinweis, setHinweis] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [renderVersion, setRenderVersion] = useState(0);
-  const [recipes, setRecipes] = useState<Recipe[]>(() => loadRecipes());
+  const [customPresets, setCustomPresets] = useState<Preset[]>(() => loadCustomPresets());
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -56,6 +58,10 @@ export default function App() {
   const active = useMemo(
     () => photos.find((p) => p.id === activeId) ?? null,
     [photos, activeId],
+  );
+  const presets = useMemo(
+    () => [...BUILTIN_PRESETS, ...customPresets],
+    [customPresets],
   );
 
   // ---------------------------------------------------------------- Bilder
@@ -104,12 +110,7 @@ export default function App() {
       canvas.height = bitmap.height;
       canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.9));
-      addPhoto(
-        bitmap,
-        "Beispielmotiv",
-        blob ? URL.createObjectURL(blob) : "",
-        null,
-      );
+      addPhoto(bitmap, "Beispielmotiv", blob ? URL.createObjectURL(blob) : "", null);
     } catch {
       setError("Beispielmotiv konnte nicht erzeugt werden.");
     }
@@ -137,6 +138,16 @@ export default function App() {
     // Absichtlich nur beim Aushaengen - photos hier als Abhaengigkeit wuerde
     // bei jedem neuen Bild alle bisherigen schliessen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Einen geteilten Look aus der Adresszeile uebernehmen.
+  useEffect(() => {
+    const look = decodeLook(window.location.hash);
+    if (!look) return;
+    setStockSlug(look.stock);
+    setScannerSlug(look.scanner);
+    setAdjustments(look.adjustments);
+    setHinweis("Look aus dem Link uebernommen.");
   }, []);
 
   // ------------------------------------------------------------- Verlauf
@@ -205,60 +216,6 @@ export default function App() {
   useEffect(() => {
     setRenderVersion((v) => v + 1);
   }, [stockSlug, scannerSlug, adjustments, activeId]);
-
-  // ------------------------------------------------------------- Export
-
-  const handleExport = useCallback(async () => {
-    if (!active) return;
-    setExporting(true);
-    try {
-      // Eigener Renderer mit hoeherem Deckel - die Bildschirmvorschau laeuft
-      // aus Geschwindigkeitsgruenden auf 2048 Pixel, das reicht fuer eine
-      // Ausgabedatei nicht.
-      const canvas = document.createElement("canvas");
-      const renderer = new FilmRenderer(canvas, EXPORT_MAX_EDGE);
-      renderer.setImage(active.bitmap);
-      renderer.render({ stock, scanner, ...adjustments });
-      const blob = await new Promise<Blob | null>((r) =>
-        canvas.toBlob(r, "image/jpeg", 0.94),
-      );
-      renderer.dispose();
-      if (!blob) throw new Error("Der Browser konnte kein JPEG erzeugen.");
-
-      let out = blob;
-      if (active.file) {
-        const exif = await readExifSegment(active.file);
-        if (exif) out = await spliceExif(blob, exif);
-      }
-
-      const name = `film-lab-${stock.slug}-${scanner.slug}-${Date.now()}.jpg`;
-      const file = new File([out], name, { type: "image/jpeg" });
-
-      // Auf dem Telefon ist Teilen der brauchbare Weg, am Rechner der
-      // Download. Teilen kann fehlschlagen, wenn die Nutzergeste durch das
-      // Rendern verfallen ist - dann eben herunterladen.
-      if (navigator.canShare?.({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file] });
-          return;
-        } catch {
-          /* faellt unten auf den Download zurueck */
-        }
-      }
-      const url = URL.createObjectURL(out);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      a.click();
-      // Nicht sofort freigeben: manche Browser lesen den Blob erst nach dem
-      // Ende des Ereignisses, ein Widerruf im selben Zug bricht den Download ab.
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Export fehlgeschlagen.");
-    } finally {
-      setExporting(false);
-    }
-  }, [active, stock, scanner, adjustments]);
 
   // ----------------------------------------------------------- Graupunkt
 
@@ -331,30 +288,135 @@ export default function App() {
     [active],
   );
 
-  // --------------------------------------------------------------- Rezepte
+  // --------------------------------------------------------------- Presets
 
-  const handleSaveRecipe = useCallback(
+  const handleSavePreset = useCallback(
     (name: string) => {
-      setRecipes(
-        saveRecipe({ name, stock: stockSlug, scanner: scannerSlug, adjustments }),
+      setCustomPresets(
+        saveCustomPreset({ name, stock: stockSlug, scanner: scannerSlug, adjustments }),
       );
     },
     [stockSlug, scannerSlug, adjustments],
   );
 
-  const handleApplyRecipe = useCallback((recipe: Recipe) => {
-    setStockSlug(recipe.stock);
-    setScannerSlug(recipe.scanner);
-    // Fehlende Felder aus aelteren Rezepten mit den Vorgaben auffuellen,
-    // sonst bricht ein gespeichertes Rezept nach jeder neuen Reglerachse.
-    setAdjustments({ ...NEUTRAL, ...recipe.adjustments });
-  }, []);
-
-  const applyPreset = useCallback((preset: Preset) => {
+  const handleApplyPreset = useCallback((preset: Preset) => {
     setStockSlug(preset.stock);
     setScannerSlug(preset.scanner);
-    setAdjustments(preset.adjustments);
+    // Fehlende Felder aelterer Presets mit den Vorgaben auffuellen, sonst
+    // bricht ein gespeichertes Preset nach jeder neuen Reglerachse.
+    setAdjustments({ ...NEUTRAL, ...preset.adjustments });
   }, []);
+
+  // ------------------------------------------------------------- Export
+
+  /** Ein Foto in voller Aufloesung entwickeln und als JPEG zurueckgeben. */
+  const developToBlob = useCallback(
+    async (photo: Photo): Promise<Blob> => {
+      // Eigener Renderer mit hoeherem Deckel - die Bildschirmvorschau laeuft
+      // aus Geschwindigkeitsgruenden auf 2048 Pixel, das reicht fuer eine
+      // Ausgabedatei nicht.
+      const canvas = document.createElement("canvas");
+      const renderer = new FilmRenderer(canvas, EXPORT_MAX_EDGE);
+      try {
+        renderer.setImage(photo.bitmap);
+        renderer.render({ stock, scanner, ...adjustments });
+        const blob = await new Promise<Blob | null>((r) =>
+          canvas.toBlob(r, "image/jpeg", 0.94),
+        );
+        if (!blob) throw new Error("Der Browser konnte kein JPEG erzeugen.");
+        if (!photo.file) return blob;
+        const exif = await readExifSegment(photo.file);
+        return exif ? spliceExif(blob, exif) : blob;
+      } finally {
+        renderer.dispose();
+      }
+    },
+    [stock, scanner, adjustments],
+  );
+
+  const download = useCallback((blob: Blob, name: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    // Nicht sofort freigeben: manche Browser lesen den Blob erst nach dem
+    // Ende des Ereignisses, ein Widerruf im selben Zug bricht den Download ab.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }, []);
+
+  const dateiname = useCallback(
+    (photo: Photo) => {
+      const basis = photo.name.replace(/\.[^.]+$/, "") || "bild";
+      return `${basis}-${stock.slug}-${scanner.slug}.jpg`;
+    },
+    [stock.slug, scanner.slug],
+  );
+
+  const handleExport = useCallback(async () => {
+    if (!active) return;
+    setExportStatus("Export laeuft");
+    try {
+      const blob = await developToBlob(active);
+      const name = dateiname(active);
+      const file = new File([blob], name, { type: "image/jpeg" });
+
+      // Auf dem Telefon ist Teilen der brauchbare Weg, am Rechner der
+      // Download. Teilen kann fehlschlagen, wenn die Nutzergeste durch das
+      // Rendern verfallen ist - dann eben herunterladen.
+      if (navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+          return;
+        } catch {
+          /* faellt unten auf den Download zurueck */
+        }
+      }
+      download(blob, name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export fehlgeschlagen.");
+    } finally {
+      setExportStatus(null);
+    }
+  }, [active, developToBlob, dateiname, download]);
+
+  const handleExportAll = useCallback(async () => {
+    if (photos.length === 0) return;
+    try {
+      for (let i = 0; i < photos.length; i++) {
+        setExportStatus(`Bild ${i + 1} von ${photos.length}`);
+        const blob = await developToBlob(photos[i]);
+        download(blob, dateiname(photos[i]));
+        // Kurze Pause: mehrere Downloads kurz hintereinander laesst nicht
+        // jeder Browser durch, und der Nutzer soll die Nachfrage sehen.
+        await new Promise((r) => setTimeout(r, 350));
+      }
+      setHinweis(`${photos.length} Bilder exportiert.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Stapelexport fehlgeschlagen.");
+    } finally {
+      setExportStatus(null);
+    }
+  }, [photos, developToBlob, dateiname, download]);
+
+  const handleCopyLink = useCallback(async () => {
+    const url = lookUrl({ stock: stockSlug, scanner: scannerSlug, adjustments });
+    // Adresszeile mitziehen, damit ein Neuladen den Look behaelt.
+    window.history.replaceState(null, "", url);
+    try {
+      await navigator.clipboard.writeText(url);
+      setHinweis("Link zum Look kopiert.");
+    } catch {
+      setHinweis("Link steht in der Adresszeile.");
+    }
+  }, [stockSlug, scannerSlug, adjustments]);
+
+  // Hinweise wieder ausblenden.
+  useEffect(() => {
+    if (!hinweis) return;
+    const t = setTimeout(() => setHinweis(null), 4000);
+    return () => clearTimeout(t);
+  }, [hinweis]);
 
   // -------------------------------------------------------------- Ansicht
 
@@ -381,6 +443,7 @@ export default function App() {
             {error}
           </p>
         )}
+        {hinweis && !error && <p className="hinweis">{hinweis}</p>}
 
         {active ? (
           <>
@@ -453,17 +516,19 @@ export default function App() {
         onScannerChange={setScannerSlug}
         adjustments={adjustments}
         onAdjust={setAdjustments}
-        onPreset={applyPreset}
-        recipes={recipes}
-        onApplyRecipe={handleApplyRecipe}
-        onSaveRecipe={handleSaveRecipe}
-        onDeleteRecipe={(id) => setRecipes(removeRecipe(id))}
+        presets={presets}
+        onApplyPreset={handleApplyPreset}
+        onSavePreset={handleSavePreset}
+        onDeletePreset={(id) => setCustomPresets(removeCustomPreset(id))}
         onReset={() => setAdjustments(NEUTRAL)}
         onUndo={undo}
         canUndo={historyLength >= 2}
         onExport={() => void handleExport()}
-        exporting={exporting}
+        onExportAll={() => void handleExportAll()}
+        onCopyLink={() => void handleCopyLink()}
+        exportStatus={exportStatus}
         canExport={active !== null}
+        photoCount={photos.length}
         thumbnails={thumbnails}
         canvasRef={canvasRef}
         renderVersion={renderVersion}

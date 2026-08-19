@@ -781,3 +781,195 @@ input[type="range"]::-moz-range-thumb {
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* --------------------------------------------------------------- Presets */
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.expand {
+  font-family: var(--mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  padding: 0 0 0.625rem;
+  cursor: pointer;
+}
+
+.expand:hover {
+  color: var(--accent);
+}
+
+/*
+ * Eingeklappt eine einzige Zeile, die seitlich scrollt. Presets sind der
+ * Einstieg fuer alle, die sich mit den Reglern nicht auskennen - sie duerfen
+ * nicht hinter einem Aufklapper verschwinden, aber auch nicht den halben
+ * Platz der Leiste belegen.
+ */
+.preset-strip {
+  display: flex;
+  gap: 0.375rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  scrollbar-width: thin;
+}
+
+.preset-strip .preset {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.preset.own {
+  border-style: dashed;
+}
+
+.preset.add {
+  padding-inline: 0.625rem;
+  color: var(--text-faint);
+}
+
+.preset-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.preset-card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.preset-card:hover {
+  border-color: var(--border-hi);
+}
+
+.preset-card-apply {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-dim);
+}
+
+.preset-card-name {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.preset-card-blurb {
+  display: block;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  margin-top: 0.125rem;
+  color: var(--text-faint);
+}
+
+.preset-del {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1;
+  padding: 0 0.625rem;
+}
+
+.preset-del:hover {
+  color: var(--accent);
+}
+
+.save-recipe {
+  display: flex;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.save-recipe input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border-hi);
+  border-radius: 3px;
+  padding: 0.4375rem 0.625rem;
+}
+
+.save-recipe input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.save-recipe button {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--border-hi);
+  border-radius: 3px;
+  padding: 0 0.75rem;
+  cursor: pointer;
+}
+
+.save-recipe button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------ 1:1-Ansicht */
+
+.frame.zoomed {
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.frame.zoomed:active {
+  cursor: grabbing;
+}
+
+/* In der 1:1-Ansicht laeuft das Canvas in seiner echten Pixelgroesse und
+   wird verschoben statt eingepasst. */
+.frame.zoomed canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+}
+
+.compare-toggle:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------- Hinweis */
+
+.hinweis {
+  margin: 1rem 1.5rem 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+  border: 1px solid var(--border-hi);
+  border-radius: 3px;
+  padding: 0.625rem 0.75rem;
+}

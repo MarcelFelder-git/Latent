@@ -2,8 +2,7 @@ import { useState, type RefObject } from "react";
 import { CurveDisplay } from "./CurveDisplay";
 import { Histogram } from "./Histogram";
 import type { Adjustments } from "../lib/film/adjustments";
-import { PRESETS, type Preset } from "../lib/film/presets";
-import type { Recipe } from "../lib/film/recipes";
+import type { Preset } from "../lib/film/presets";
 import { SCANNERS, type ScannerProfile } from "../lib/film/scanners";
 import { STOCKS, type FilmStock } from "../lib/film/stocks";
 
@@ -70,17 +69,21 @@ interface ControlsProps {
   onScannerChange: (slug: string) => void;
   adjustments: Adjustments;
   onAdjust: (next: Adjustments) => void;
-  onPreset: (preset: Preset) => void;
-  recipes: Recipe[];
-  onApplyRecipe: (recipe: Recipe) => void;
-  onSaveRecipe: (name: string) => void;
-  onDeleteRecipe: (id: string) => void;
+  /** Mitgelieferte und eigene, bereits zusammengefuehrt. */
+  presets: Preset[];
+  onApplyPreset: (preset: Preset) => void;
+  onSavePreset: (name: string) => void;
+  onDeletePreset: (id: string) => void;
   onReset: () => void;
   onUndo: () => void;
   canUndo: boolean;
   onExport: () => void;
-  exporting: boolean;
+  onExportAll: () => void;
+  onCopyLink: () => void;
+  /** Text waehrend eines laufenden Exports, sonst null. */
+  exportStatus: string | null;
   canExport: boolean;
+  photoCount: number;
   /** Vorschaubilder je Stock-Slug, sobald berechnet. */
   thumbnails: Record<string, string>;
   canvasRef: RefObject<HTMLCanvasElement>;
@@ -94,24 +97,26 @@ export function Controls({
   onScannerChange,
   adjustments,
   onAdjust,
-  onPreset,
-  recipes,
-  onApplyRecipe,
-  onSaveRecipe,
-  onDeleteRecipe,
+  presets,
+  onApplyPreset,
+  onSavePreset,
+  onDeletePreset,
   onReset,
   onUndo,
   canUndo,
   onExport,
-  exporting,
+  onExportAll,
+  onCopyLink,
+  exportStatus,
   canExport,
+  photoCount,
   thumbnails,
   canvasRef,
   renderVersion,
 }: ControlsProps) {
   const [erklaert, setErklaert] = useState<string | null>(null);
   const [neuerName, setNeuerName] = useState("");
-  const [speichernOffen, setSpeichernOffen] = useState(false);
+  const [presetsOffen, setPresetsOffen] = useState(false);
 
   const set =
     <K extends keyof Adjustments>(key: K) =>
@@ -121,61 +126,82 @@ export function Controls({
   return (
     <aside className="controls">
       <section>
-        <h2 className="section-label">Voreinstellung</h2>
-        <div className="presets">
-          {PRESETS.map((p) => (
-            <button key={p.slug} className="preset" title={p.blurb} onClick={() => onPreset(p)}>
-              {p.name}
-            </button>
-          ))}
+        <div className="section-head">
+          <h2 className="section-label">Presets</h2>
+          <button
+            className="expand"
+            aria-expanded={presetsOffen}
+            onClick={() => setPresetsOffen((o) => !o)}
+          >
+            {presetsOffen ? "Weniger" : `Alle ${presets.length}`}
+          </button>
         </div>
 
-        {recipes.length > 0 && (
-          <div className="presets eigene">
-            {recipes.map((r) => (
-              <span key={r.id} className="preset own">
-                <button className="preset-apply" onClick={() => onApplyRecipe(r)}>
-                  {r.name}
-                </button>
-                <button
-                  className="preset-del"
-                  aria-label={`Rezept ${r.name} loeschen`}
-                  onClick={() => onDeleteRecipe(r.id)}
-                >
-                  &times;
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
+        {presetsOffen ? (
+          <>
+            <div className="preset-grid">
+              {presets.map((p) => (
+                <div key={p.id} className="preset-card">
+                  <button className="preset-card-apply" onClick={() => onApplyPreset(p)}>
+                    <span className="preset-card-name">{p.name}</span>
+                    <span className="preset-card-blurb">{p.blurb}</span>
+                  </button>
+                  {p.custom && (
+                    <button
+                      className="preset-del"
+                      aria-label={`Preset ${p.name} loeschen`}
+                      onClick={() => onDeletePreset(p.id)}
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
 
-        {speichernOffen ? (
-          <form
-            className="save-recipe"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const name = neuerName.trim();
-              if (!name) return;
-              onSaveRecipe(name);
-              setNeuerName("");
-              setSpeichernOffen(false);
-            }}
-          >
-            <input
-              autoFocus
-              value={neuerName}
-              placeholder="Name des Rezepts"
-              aria-label="Name des Rezepts"
-              onChange={(e) => setNeuerName(e.target.value)}
-            />
-            <button type="submit" disabled={!neuerName.trim()}>
-              Sichern
-            </button>
-          </form>
+            <form
+              className="save-recipe"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const name = neuerName.trim();
+                if (!name) return;
+                onSavePreset(name);
+                setNeuerName("");
+              }}
+            >
+              <input
+                value={neuerName}
+                placeholder="Aktuelle Einstellung sichern als..."
+                aria-label="Name des Presets"
+                onChange={(e) => setNeuerName(e.target.value)}
+              />
+              <button type="submit" disabled={!neuerName.trim()}>
+                Sichern
+              </button>
+            </form>
+          </>
         ) : (
-          <button className="save-open" onClick={() => setSpeichernOffen(true)}>
-            + Aktuelle Einstellung als Rezept sichern
-          </button>
+          // Eingeklappt eine einzige Zeile, die seitlich scrollt - Presets
+          // sollen greifbar bleiben, ohne den halben Platz zu belegen.
+          <div className="preset-strip">
+            {presets.map((p) => (
+              <button
+                key={p.id}
+                className={p.custom ? "preset own" : "preset"}
+                title={p.blurb}
+                onClick={() => onApplyPreset(p)}
+              >
+                {p.name}
+              </button>
+            ))}
+            <button
+              className="preset add"
+              aria-label="Preset sichern oder verwalten"
+              onClick={() => setPresetsOffen(true)}
+            >
+              +
+            </button>
+          </div>
         )}
       </section>
 
@@ -348,9 +374,20 @@ export function Controls({
           Zurueck
         </button>
         <button onClick={onReset}>Neutral</button>
-        <button onClick={onExport} disabled={!canExport || exporting}>
-          {exporting ? "Export laeuft" : "Export"}
+        <button onClick={onCopyLink} title="Diesen Look als Link weitergeben">
+          Look-Link
         </button>
+      </div>
+
+      <div className="actions">
+        <button onClick={onExport} disabled={!canExport || exportStatus !== null}>
+          {exportStatus ?? "Export"}
+        </button>
+        {photoCount > 1 && (
+          <button onClick={onExportAll} disabled={exportStatus !== null}>
+            Alle {photoCount}
+          </button>
+        )}
       </div>
     </aside>
   );
