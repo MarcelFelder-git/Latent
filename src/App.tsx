@@ -3,6 +3,13 @@ import { Controls } from "./components/Controls";
 import { Viewer } from "./components/Viewer";
 import { NEUTRAL, type Adjustments } from "./lib/film/adjustments";
 import type { Preset } from "./lib/film/presets";
+import {
+  loadRecipes,
+  removeRecipe,
+  saveRecipe,
+  type Recipe,
+} from "./lib/film/recipes";
+import { neutralizeFrom } from "./lib/film/whitebalance";
 import { DEFAULT_SCANNER, scannerBySlug } from "./lib/film/scanners";
 import { DEFAULT_STOCK, STOCKS, stockBySlug } from "./lib/film/stocks";
 import { createDemoImage } from "./lib/demoImage";
@@ -39,6 +46,7 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [renderVersion, setRenderVersion] = useState(0);
+  const [recipes, setRecipes] = useState<Recipe[]>(() => loadRecipes());
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -252,6 +260,96 @@ export default function App() {
     }
   }, [active, stock, scanner, adjustments]);
 
+  // ----------------------------------------------------------- Graupunkt
+
+  /**
+   * Zwischenspeicher fuer die Pipette: das Bild verkleinert als 2D-Canvas.
+   * Ein 4000-Pixel-Bild fuer jeden Klick neu zu zeichnen waere Verschwendung,
+   * und das Verkleinern mittelt nebenbei das Rauschen weg.
+   */
+  const sample = useRef<{
+    id: string;
+    ctx: CanvasRenderingContext2D;
+    w: number;
+    h: number;
+  } | null>(null);
+
+  const handlePick = useCallback(
+    (u: number, v: number) => {
+      if (!active) return;
+      let cache = sample.current;
+      if (!cache || cache.id !== active.id) {
+        const EDGE = 640;
+        const scale = Math.min(
+          1,
+          EDGE / Math.max(active.bitmap.width, active.bitmap.height),
+        );
+        const w = Math.max(1, Math.round(active.bitmap.width * scale));
+        const h = Math.max(1, Math.round(active.bitmap.height * scale));
+        const cv = document.createElement("canvas");
+        cv.width = w;
+        cv.height = h;
+        const ctx = cv.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return;
+        ctx.drawImage(active.bitmap, 0, 0, w, h);
+        cache = { id: active.id, ctx, w, h };
+        sample.current = cache;
+      }
+
+      const x = Math.min(cache.w - 1, Math.max(0, Math.round(u * cache.w)));
+      const y = Math.min(cache.h - 1, Math.max(0, Math.round(v * cache.h)));
+      const x0 = Math.max(0, x - 2);
+      const y0 = Math.max(0, y - 2);
+      const bw = Math.min(5, cache.w - x0);
+      const bh = Math.min(5, cache.h - y0);
+
+      let d: Uint8ClampedArray;
+      try {
+        d = cache.ctx.getImageData(x0, y0, bw, bh).data;
+      } catch {
+        setError("Der Bildpunkt liess sich nicht auslesen.");
+        return;
+      }
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        r += d[i];
+        g += d[i + 1];
+        b += d[i + 2];
+        n++;
+      }
+
+      // Gemessen wird im *Original*, nicht im entwickelten Bild. Das ist die
+      // richtige fotografische Bedeutung: der Klick sagt "das war in
+      // Wirklichkeit grau" - der Farbcharakter des Films soll danach ja
+      // erhalten bleiben und nicht wegkorrigiert werden.
+      const { warmth, tint } = neutralizeFrom(r / n, g / n, b / n);
+      setAdjustments((a) => ({ ...a, warmth, tint }));
+    },
+    [active],
+  );
+
+  // --------------------------------------------------------------- Rezepte
+
+  const handleSaveRecipe = useCallback(
+    (name: string) => {
+      setRecipes(
+        saveRecipe({ name, stock: stockSlug, scanner: scannerSlug, adjustments }),
+      );
+    },
+    [stockSlug, scannerSlug, adjustments],
+  );
+
+  const handleApplyRecipe = useCallback((recipe: Recipe) => {
+    setStockSlug(recipe.stock);
+    setScannerSlug(recipe.scanner);
+    // Fehlende Felder aus aelteren Rezepten mit den Vorgaben auffuellen,
+    // sonst bricht ein gespeichertes Rezept nach jeder neuen Reglerachse.
+    setAdjustments({ ...NEUTRAL, ...recipe.adjustments });
+  }, []);
+
   const applyPreset = useCallback((preset: Preset) => {
     setStockSlug(preset.stock);
     setScannerSlug(preset.scanner);
@@ -292,6 +390,7 @@ export default function App() {
               params={{ stock, scanner, ...adjustments }}
               onError={setError}
               canvasRef={canvasRef}
+              onPick={handlePick}
             />
             <div className="filmstrip">
               {photos.map((p) => (
@@ -355,6 +454,10 @@ export default function App() {
         adjustments={adjustments}
         onAdjust={setAdjustments}
         onPreset={applyPreset}
+        recipes={recipes}
+        onApplyRecipe={handleApplyRecipe}
+        onSaveRecipe={handleSaveRecipe}
+        onDeleteRecipe={(id) => setRecipes(removeRecipe(id))}
         onReset={() => setAdjustments(NEUTRAL)}
         onUndo={undo}
         canUndo={historyLength >= 2}

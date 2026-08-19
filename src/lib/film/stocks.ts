@@ -69,8 +69,14 @@ export interface FilmStock {
     size: number;
     /** Grundstaerke. Wird in der UI zusaetzlich skaliert. */
     intensity: number;
-    /** Pro Kanal - die Blauschicht ist bei echtem Film immer die koernigste. */
+    /** Staerke pro Kanal - die Blauschicht ist immer die koernigste. */
     channelBias: [number, number, number];
+    /**
+     * Korngroesse pro Kanal, als Faktor auf size. Die Blauschicht hat nicht
+     * nur mehr Korn, sondern auch groeberes - sie liegt obenauf und braucht
+     * groessere Kristalle fuer ihre Empfindlichkeit.
+     */
+    sizeBias: [number, number, number];
   };
 
   halation: {
@@ -84,9 +90,16 @@ export interface FilmStock {
      *  Bildpixeln. Sinnvoll ist etwa 1.0 bis 3.0. */
     radius: number;
     strength: number;
-    /** Farbe des Streulichts. Rot dominiert, weil langwelliges Licht am
-     *  weitesten durch die Emulsion wandert. */
+    /** Farbe des Streulichts - wieviel je Kanal ueberhaupt streut. */
     tint: [number, number, number];
+    /**
+     * Wie *weit* je Kanal gestreut wird: 0 = enger Hof, 1 = weiter Hof.
+     * Langwelliges Licht dringt tiefer in die Emulsion ein und streut
+     * entsprechend breiter - deshalb ist der Rotwert der hoechste. Das ist
+     * der Unterschied zwischen einem eingefaerbten Weichzeichner und einem
+     * Lichthof, der sich nach aussen hin rot verfaerbt.
+     */
+    spread: [number, number, number];
   };
 
   /** Wie stark Farben zu den Lichtern hin ausbleichen. */
@@ -116,8 +129,9 @@ export const STOCKS: FilmStock[] = [
       0.01, 1.0, -0.01,
       -0.01, 0.03, 0.98,
     ],
-    grain: { size: 1.5, intensity: 0.055, channelBias: [0.85, 1.0, 1.35] },
-    halation: { threshold: 0.9, radius: 1.4, strength: 0.06, tint: [1.0, 0.34, 0.16] },
+    grain: { size: 1.5, intensity: 0.055, channelBias: [0.85, 1.0, 1.35], sizeBias: [0.95, 1.0, 1.25] },
+    halation: { threshold: 0.9, radius: 1.4, strength: 0.06, tint: [1.0, 0.34, 0.16],
+      spread: [1.0, 0.5, 0.2] },
     highlightDesat: 0.18,
   },
   {
@@ -143,10 +157,11 @@ export const STOCKS: FilmStock[] = [
       0.02, 1.0, -0.02,
       -0.02, 0.02, 1.0,
     ],
-    grain: { size: 2.1, intensity: 0.085, channelBias: [0.9, 1.0, 1.45] },
+    grain: { size: 2.1, intensity: 0.085, channelBias: [0.9, 1.0, 1.45], sizeBias: [0.92, 1.0, 1.35] },
     // Der Grund fuer den ganzen Film: ohne Anti-Halation-Schicht streut Licht
     // durch den Traeger zurueck in die Emulsion. Daher der breite rote Hof.
-    halation: { threshold: 0.45, radius: 2.6, strength: 0.4, tint: [1.0, 0.16, 0.08] },
+    halation: { threshold: 0.45, radius: 2.6, strength: 0.4, tint: [1.0, 0.16, 0.08],
+      spread: [1.0, 0.45, 0.15] },
     highlightDesat: 0.16,
   },
   {
@@ -170,8 +185,9 @@ export const STOCKS: FilmStock[] = [
       b: { speed: 0.0, gamma: 0.72, toe: 0.95, shoulder: 1.1 },
     },
     crosstalk: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-    grain: { size: 2.4, intensity: 0.11, channelBias: [1.0, 1.0, 1.0] },
-    halation: { threshold: 0.8, radius: 1.6, strength: 0.07, tint: [1.0, 1.0, 1.0] },
+    grain: { size: 2.4, intensity: 0.11, channelBias: [1.0, 1.0, 1.0], sizeBias: [1.0, 1.0, 1.0] },
+    halation: { threshold: 0.8, radius: 1.6, strength: 0.07, tint: [1.0, 1.0, 1.0],
+      spread: [0.5, 0.5, 0.5] },
     highlightDesat: 0.0,
   },
 ];

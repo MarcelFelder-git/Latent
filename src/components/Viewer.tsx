@@ -8,6 +8,11 @@ interface ViewerProps {
   onError: (message: string) => void;
   /** Von App gehalten, damit der Export an die Pixel kommt. */
   canvasRef: RefObject<HTMLCanvasElement>;
+  /**
+   * Wird mit den auf 0..1 normierten Bildkoordinaten des Klicks gerufen,
+   * solange die Pipette aktiv ist.
+   */
+  onPick: (u: number, v: number) => void;
 }
 
 /**
@@ -15,11 +20,19 @@ interface ViewerProps {
  * etwas geaendert hat - kein requestAnimationFrame-Dauerlauf. Ein Foto ist
  * statisch, eine Endlosschleife wuerde nur Akku kosten.
  */
-export function Viewer({ image, originalUrl, params, onError, canvasRef }: ViewerProps) {
+export function Viewer({
+  image,
+  originalUrl,
+  params,
+  onError,
+  canvasRef,
+  onPick,
+}: ViewerProps) {
   const rendererRef = useRef<FilmRenderer | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
 
   const [comparing, setComparing] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [split, setSplit] = useState(0.5);
   const [dragging, setDragging] = useState(false);
 
@@ -81,9 +94,21 @@ export function Viewer({ image, originalUrl, params, onError, canvasRef }: Viewe
         Box selbst aus, und die Ueberlagerungen sitzen deckungsgleich.
       */}
       <div
-        className="frame"
+        className={picking ? "frame picking" : "frame"}
         ref={frameRef}
         style={image ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
+        onClick={(e) => {
+          if (!picking) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) return;
+          onPick(
+            (e.clientX - rect.left) / rect.width,
+            (e.clientY - rect.top) / rect.height,
+          );
+          // Nach einem Griff wieder aus - eine Pipette, die anbleibt, klickt
+          // einem beim naechsten Mal versehentlich den Abgleich kaputt.
+          setPicking(false);
+        }}
       >
         <canvas ref={canvasRef} />
 
@@ -124,13 +149,29 @@ export function Viewer({ image, originalUrl, params, onError, canvasRef }: Viewe
           </>
         )}
 
-        <button
-          className="compare-toggle"
-          aria-pressed={comparing}
-          onClick={() => setComparing((c) => !c)}
-        >
-          {comparing ? "Vergleich aus" : "Vergleich"}
-        </button>
+        <div className="frame-tools">
+          <button
+            className="compare-toggle"
+            aria-pressed={picking}
+            title="Auf eine Stelle klicken, die neutral grau sein soll"
+            onClick={(e) => {
+              e.stopPropagation();
+              setPicking((p) => !p);
+            }}
+          >
+            {picking ? "Klick ins Bild" : "Graupunkt"}
+          </button>
+          <button
+            className="compare-toggle"
+            aria-pressed={comparing}
+            onClick={(e) => {
+              e.stopPropagation();
+              setComparing((c) => !c);
+            }}
+          >
+            {comparing ? "Vergleich aus" : "Vergleich"}
+          </button>
+        </div>
       </div>
     </div>
   );

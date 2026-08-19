@@ -143,7 +143,8 @@ in vec2 vUv;
 out vec4 fragColor;
 
 uniform sampler2D uScene;      // lineare Belichtung
-uniform sampler2D uHalation;   // lineares Streulicht, weichgezeichnet
+uniform sampler2D uHalation;       // weit gestreutes Licht (zwei Durchlaeufe)
+uniform sampler2D uHalationNarrow; // eng gestreutes Licht (ein Durchlauf)
 uniform sampler2D uImage;      // Original, fuer die Ueberblendung
 
 uniform vec4 uCurveR;          // speed, gamma, toe, shoulder
@@ -151,6 +152,7 @@ uniform vec4 uCurveG;
 uniform vec4 uCurveB;
 
 uniform vec3 uHalationTint;
+uniform vec3 uHalationSpread;
 uniform float uHalationStrength;
 uniform float uHighlightDesat;
 
@@ -158,6 +160,7 @@ uniform vec2 uImageSize;
 uniform float uGrainSize;
 uniform float uGrainIntensity;
 uniform vec3 uGrainBias;
+uniform vec3 uGrainSizeBias;
 uniform float uSeed;
 
 uniform float uVignette;
@@ -213,7 +216,15 @@ void main() {
   // Addition im Linearlicht und VOR der Kurve: Streulicht ist zusaetzliche
   // Belichtung, keine Aufhellung des fertigen Bildes.
   vec3 scene = texture(uScene, vUv).rgb;
-  scene += texture(uHalation, vUv).rgb * uHalationTint * uHalationStrength;
+
+  // Zwei Streubreiten, pro Kanal gemischt. Langwelliges Licht dringt tiefer
+  // in die Emulsion ein und streut dort breiter - der Lichthof ist innen
+  // heller und wird nach aussen hin roter. Ein einzelner, eingefaerbter
+  // Weichzeichner kann das nicht: der haette ueberall dieselbe Farbe.
+  vec3 eng = texture(uHalationNarrow, vUv).rgb;
+  vec3 weit = texture(uHalation, vUv).rgb;
+  vec3 streulicht = mix(eng, weit, uHalationSpread);
+  scene += streulicht * uHalationTint * uHalationStrength;
 
   // --- Entwicklung ----------------------------------------------------
   vec3 c = vec3(
@@ -232,17 +243,17 @@ void main() {
   // Film, es darf beim Zoomen nicht mitwachsen.
   vec2 gp = vUv * uImageSize / max(uGrainSize, 0.5);
   // Farbfilm hat drei Emulsionsschichten, die unabhaengig voneinander koernen
-  // - deshalb drei getrennte Rauschabtastungen. Schwarzweissfilm hat nur eine
-  // Schicht: dort muss dasselbe Korn in allen Kanaelen stehen, sonst faerbt
-  // sich ein Graustufenbild bunt ein.
+  // - deshalb drei getrennte Rauschabtastungen, jede mit eigener Korngroesse.
+  // Schwarzweissfilm hat nur eine Schicht: dort muss dasselbe Korn in allen
+  // Kanaelen stehen, sonst faerbt sich ein Graustufenbild bunt ein.
   vec3 n;
   if (uMonochrome > 0.5) {
     n = vec3(valueNoise(gp + vec2(uSeed, 0.0)) - 0.5);
   } else {
     n = vec3(
-      valueNoise(gp + vec2(uSeed, 0.0)),
-      valueNoise(gp + vec2(0.0, uSeed + 37.0)),
-      valueNoise(gp + vec2(uSeed + 71.0, 19.0))
+      valueNoise(gp / uGrainSizeBias.r + vec2(uSeed, 0.0)),
+      valueNoise(gp / uGrainSizeBias.g + vec2(0.0, uSeed + 37.0)),
+      valueNoise(gp / uGrainSizeBias.b + vec2(uSeed + 71.0, 19.0))
     ) - 0.5;
   }
 

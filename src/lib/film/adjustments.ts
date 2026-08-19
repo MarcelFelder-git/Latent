@@ -8,8 +8,10 @@ export interface Adjustments {
   exposure: number;
   /** Laenger oder kuerzer entwickeln. */
   push: number;
-  /** -1 kuehl bis +1 warm. */
+  /** -1 kuehl bis +1 warm (Rot gegen Blau). */
   warmth: number;
+  /** -1 gruen bis +1 magenta - die zweite Weissabgleichsachse. */
+  tint: number;
   /** 0 = Original, 1 = volle Emulation. */
   strength: number;
   grain: number;
@@ -21,6 +23,7 @@ export const NEUTRAL: Adjustments = {
   exposure: 0,
   push: 0,
   warmth: 0,
+  tint: 0,
   strength: 1,
   grain: 1,
   halation: 1,

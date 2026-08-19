@@ -3,6 +3,7 @@ import { CurveDisplay } from "./CurveDisplay";
 import { Histogram } from "./Histogram";
 import type { Adjustments } from "../lib/film/adjustments";
 import { PRESETS, type Preset } from "../lib/film/presets";
+import type { Recipe } from "../lib/film/recipes";
 import { SCANNERS, type ScannerProfile } from "../lib/film/scanners";
 import { STOCKS, type FilmStock } from "../lib/film/stocks";
 
@@ -57,6 +58,11 @@ const asWarmth = (v: number) => {
   return `${v > 0 ? "warm" : "kuehl"} ${Math.round(Math.abs(v) * 100)} %`;
 };
 
+const asTint = (v: number) => {
+  if (Math.abs(v) < 0.03) return "neutral";
+  return `${v > 0 ? "magenta" : "gruen"} ${Math.round(Math.abs(v) * 100)} %`;
+};
+
 interface ControlsProps {
   stock: FilmStock;
   onStockChange: (slug: string) => void;
@@ -65,6 +71,10 @@ interface ControlsProps {
   adjustments: Adjustments;
   onAdjust: (next: Adjustments) => void;
   onPreset: (preset: Preset) => void;
+  recipes: Recipe[];
+  onApplyRecipe: (recipe: Recipe) => void;
+  onSaveRecipe: (name: string) => void;
+  onDeleteRecipe: (id: string) => void;
   onReset: () => void;
   onUndo: () => void;
   canUndo: boolean;
@@ -85,6 +95,10 @@ export function Controls({
   adjustments,
   onAdjust,
   onPreset,
+  recipes,
+  onApplyRecipe,
+  onSaveRecipe,
+  onDeleteRecipe,
   onReset,
   onUndo,
   canUndo,
@@ -96,6 +110,8 @@ export function Controls({
   renderVersion,
 }: ControlsProps) {
   const [erklaert, setErklaert] = useState<string | null>(null);
+  const [neuerName, setNeuerName] = useState("");
+  const [speichernOffen, setSpeichernOffen] = useState(false);
 
   const set =
     <K extends keyof Adjustments>(key: K) =>
@@ -113,6 +129,54 @@ export function Controls({
             </button>
           ))}
         </div>
+
+        {recipes.length > 0 && (
+          <div className="presets eigene">
+            {recipes.map((r) => (
+              <span key={r.id} className="preset own">
+                <button className="preset-apply" onClick={() => onApplyRecipe(r)}>
+                  {r.name}
+                </button>
+                <button
+                  className="preset-del"
+                  aria-label={`Rezept ${r.name} loeschen`}
+                  onClick={() => onDeleteRecipe(r.id)}
+                >
+                  &times;
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {speichernOffen ? (
+          <form
+            className="save-recipe"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = neuerName.trim();
+              if (!name) return;
+              onSaveRecipe(name);
+              setNeuerName("");
+              setSpeichernOffen(false);
+            }}
+          >
+            <input
+              autoFocus
+              value={neuerName}
+              placeholder="Name des Rezepts"
+              aria-label="Name des Rezepts"
+              onChange={(e) => setNeuerName(e.target.value)}
+            />
+            <button type="submit" disabled={!neuerName.trim()}>
+              Sichern
+            </button>
+          </form>
+        ) : (
+          <button className="save-open" onClick={() => setSpeichernOffen(true)}>
+            + Aktuelle Einstellung als Rezept sichern
+          </button>
+        )}
       </section>
 
       <section>
@@ -184,12 +248,23 @@ export function Controls({
           />
           <Slider
             label="Weissabgleich"
+            hint="Temperatur: Rot gegen Blau"
             value={adjustments.warmth}
             min={-1}
             max={1}
             step={0.02}
             format={asWarmth}
             onChange={set("warmth")}
+          />
+          <Slider
+            label="Farbstich"
+            hint="Zweite Achse: Gruen gegen Magenta - noetig fuer Leuchtstofflicht"
+            value={adjustments.tint}
+            min={-1}
+            max={1}
+            step={0.02}
+            format={asTint}
+            onChange={set("tint")}
           />
           <Slider
             label="Staerke"

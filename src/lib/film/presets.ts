@@ -23,7 +23,7 @@ export const PRESETS: Preset[] = [
     blurb: "Hauttoene halten, Kontrast zurueck.",
     stock: "portra-400",
     scanner: "noritsu",
-    adjustments: { ...NEUTRAL, push: -0.3, warmth: 0.12, grain: 0.7, vignette: 0.12 },
+    adjustments: { ...NEUTRAL, push: -0.3, warmth: 0.12, tint: -0.04, grain: 0.7, vignette: 0.12 },
   },
   {
     slug: "goldene-stunde",
@@ -39,7 +39,7 @@ export const PRESETS: Preset[] = [
     blurb: "Neon glueht, Schatten bleiben tief.",
     stock: "cinestill-800t",
     scanner: "frontier",
-    adjustments: { ...NEUTRAL, exposure: -0.2, push: 0.6, halation: 1.5, vignette: 0.3 },
+    adjustments: { ...NEUTRAL, exposure: -0.2, push: 0.6, tint: 0.06, halation: 1.5, vignette: 0.3 },
   },
   {
     slug: "grelle-sonne",

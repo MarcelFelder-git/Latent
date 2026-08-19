@@ -1,6 +1,7 @@
 import { pushCurve, pushGrain } from "../film/curve";
 import type { ScannerProfile } from "../film/scanners";
 import type { FilmStock } from "../film/stocks";
+import { whiteBalanceGain } from "../film/whitebalance";
 import { BLUR_SRC, DEVELOP_SRC, HIGHLIGHT_SRC, SCENE_SRC, VERT_SRC } from "./shaders";
 
 /**
@@ -30,8 +31,19 @@ export const EXPORT_MAX_EDGE = 4096;
  */
 const HALATION_DOWNSAMPLE = 8;
 
-/** Zwei Durchlaeufe ergeben einen deutlich gaussfoermigeren Abfall als einer. */
-const HALATION_ITERATIONS = 2;
+/**
+ * Der zweite Streudurchlauf laeuft mit dieser vielfachen Schrittweite.
+ *
+ * Zwei gleich weite Gauss-Durchlaeufe ergeben zusammen nur die Wurzel aus
+ * zwei an Verbreiterung - viel zu wenig, um daraus zwei unterscheidbare
+ * Streubreiten zu gewinnen. Gemessen lagen die Halbwertsabstaende von Rot und
+ * Blau danach vier Pixel auseinander, also im Rauschen. Mit dem groesseren
+ * Schritt wird der weite Hof rund zweieinhalbmal so breit wie der enge.
+ *
+ * Ringe sind dabei kein Problem, obwohl die Taps weiter auseinanderliegen:
+ * der zweite Durchlauf arbeitet auf einem bereits geglaetteten Bild.
+ */
+const HALATION_WIDE_FACTOR = 2.2;
 
 export interface RenderParams {
   stock: FilmStock;
@@ -42,6 +54,8 @@ export interface RenderParams {
   push: number;
   /** -1 kuehl bis +1 warm. */
   warmth: number;
+  /** -1 gruen bis +1 magenta. */
+  tint: number;
   /** 0 = Original, 1 = volle Emulation. */
   strength: number;
   /** Faktor auf die Kornstaerke des Stocks. */
@@ -50,14 +64,6 @@ export interface RenderParams {
   halation: number;
   /** 0 = keine Vignette. */
   vignette: number;
-}
-
-/**
- * Warm = mehr Rot, weniger Blau. Gruen bleibt als Anker stehen, damit die
- * Gesamthelligkeit beim Drehen nicht mitwandert.
- */
-function whiteBalanceGain(warmth: number): [number, number, number] {
-  return [1 + warmth * 0.22, 1, 1 - warmth * 0.22];
 }
 
 /** Drei Kanalwerte auf ihren Mittelwert ziehen - fuer Schwarzweissfilm. */
@@ -143,6 +149,7 @@ export class FilmRenderer {
   private scene: Target | null = null;
   private haloA: Target | null = null;
   private haloB: Target | null = null;
+  private haloNarrow: Target | null = null;
 
   private imageWidth = 0;
   private imageHeight = 0;
@@ -259,12 +266,14 @@ export class FilmRenderer {
     this.disposeTarget(this.scene);
     this.disposeTarget(this.haloA);
     this.disposeTarget(this.haloB);
+    this.disposeTarget(this.haloNarrow);
 
     const hw = Math.max(8, Math.ceil(this.imageWidth / HALATION_DOWNSAMPLE));
     const hh = Math.max(8, Math.ceil(this.imageHeight / HALATION_DOWNSAMPLE));
     this.scene = this.makeTarget(this.imageWidth, this.imageHeight);
     this.haloA = this.makeTarget(hw, hh);
     this.haloB = this.makeTarget(hw, hh);
+    this.haloNarrow = this.makeTarget(hw, hh);
   }
 
   get hasImage(): boolean {
@@ -285,7 +294,8 @@ export class FilmRenderer {
 
   render(p: RenderParams): void {
     const gl = this.gl;
-    if (!this.imageTex || !this.scene || !this.haloA || !this.haloB) return;
+    if (!this.imageTex || !this.scene || !this.haloA || !this.haloB || !this.haloNarrow)
+      return;
 
     const { stock, scanner } = p;
     gl.bindVertexArray(this.vao);
@@ -296,7 +306,10 @@ export class FilmRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.imageTex);
     gl.uniform1i(this.scenePass.loc("uImage"), 0);
     gl.uniform1f(this.scenePass.loc("uExposure"), p.exposure);
-    gl.uniform3fv(this.scenePass.loc("uWhiteBalance"), whiteBalanceGain(p.warmth));
+    gl.uniform3fv(
+      this.scenePass.loc("uWhiteBalance"),
+      whiteBalanceGain(p.warmth, p.tint),
+    );
     // transpose = true, damit die Matrix in stocks.ts zeilenweise lesbar bleibt.
     gl.uniformMatrix3fv(
       this.scenePass.loc("uCrosstalk"), true, new Float32Array(stock.crosstalk),
@@ -321,15 +334,22 @@ export class FilmRenderer {
     gl.uniform1i(this.blurPass.loc("uSrc"), 0);
     gl.activeTexture(gl.TEXTURE0);
 
-    for (let i = 0; i < HALATION_ITERATIONS; i++) {
-      gl.bindTexture(gl.TEXTURE_2D, this.haloA.tex);
-      gl.uniform2f(this.blurPass.loc("uDirection"), r / this.haloA.width, 0);
-      this.drawTo(this.haloB);
+    // Durchlauf 1 -> enger Hof. Das Ergebnis wird aufgehoben.
+    gl.bindTexture(gl.TEXTURE_2D, this.haloA.tex);
+    gl.uniform2f(this.blurPass.loc("uDirection"), r / this.haloA.width, 0);
+    this.drawTo(this.haloB);
+    gl.bindTexture(gl.TEXTURE_2D, this.haloB.tex);
+    gl.uniform2f(this.blurPass.loc("uDirection"), 0, r / this.haloA.height);
+    this.drawTo(this.haloNarrow);
 
-      gl.bindTexture(gl.TEXTURE_2D, this.haloB.tex);
-      gl.uniform2f(this.blurPass.loc("uDirection"), 0, r / this.haloA.height);
-      this.drawTo(this.haloA);
-    }
+    // Durchlauf 2 -> weiter Hof, aufbauend auf dem engen.
+    const rw = r * HALATION_WIDE_FACTOR;
+    gl.bindTexture(gl.TEXTURE_2D, this.haloNarrow.tex);
+    gl.uniform2f(this.blurPass.loc("uDirection"), rw / this.haloA.width, 0);
+    this.drawTo(this.haloB);
+    gl.bindTexture(gl.TEXTURE_2D, this.haloB.tex);
+    gl.uniform2f(this.blurPass.loc("uDirection"), 0, rw / this.haloA.height);
+    this.drawTo(this.haloA);
 
     // --- 5) Entwickeln -------------------------------------------------
     this.developPass.use();
@@ -342,6 +362,9 @@ export class FilmRenderer {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.imageTex);
     gl.uniform1i(this.developPass.loc("uImage"), 2);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.haloNarrow.tex);
+    gl.uniform1i(this.developPass.loc("uHalationNarrow"), 3);
 
     const curves = [
       ["uCurveR", stock.curve.r],
@@ -354,6 +377,7 @@ export class FilmRenderer {
     }
 
     gl.uniform3fv(this.developPass.loc("uHalationTint"), stock.halation.tint);
+    gl.uniform3fv(this.developPass.loc("uHalationSpread"), stock.halation.spread);
     gl.uniform1f(
       this.developPass.loc("uHalationStrength"),
       stock.halation.strength * p.halation,
@@ -367,6 +391,7 @@ export class FilmRenderer {
       stock.grain.intensity * p.grain * pushGrain(p.push),
     );
     gl.uniform3fv(this.developPass.loc("uGrainBias"), stock.grain.channelBias);
+    gl.uniform3fv(this.developPass.loc("uGrainSizeBias"), stock.grain.sizeBias);
     // Fester Startwert: ein Foto hat festes Korn, es soll nicht flimmern.
     gl.uniform1f(this.developPass.loc("uSeed"), 11.7);
 
@@ -395,6 +420,7 @@ export class FilmRenderer {
     this.disposeTarget(this.scene);
     this.disposeTarget(this.haloA);
     this.disposeTarget(this.haloB);
+    this.disposeTarget(this.haloNarrow);
     if (this.imageTex) gl.deleteTexture(this.imageTex);
     this.scenePass.dispose();
     this.highlightPass.dispose();
