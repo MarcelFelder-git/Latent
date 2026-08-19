@@ -166,6 +166,8 @@ uniform float uMonochrome;
 uniform vec3 uScannerLift;
 uniform vec3 uScannerGain;
 uniform float uScannerSat;
+uniform float uBlackPoint;
+uniform float uWhitePoint;
 
 uniform float uStrength;       // 0 = Original, 1 = volle Emulation
 ${COMMON}
@@ -258,7 +260,21 @@ void main() {
   // --- Scanner --------------------------------------------------------
   float sl = dot(c, LUMA);
   c = mix(vec3(sl), c, uScannerSat);
-  c = c * uScannerGain + uScannerLift;
+
+  // Ausgabe-Normalisierung. Der Dichteumfang eines Negativs ist komprimiert -
+  // es erreicht weder echtes Schwarz noch echtes Weiss. Ein Laborscanner
+  // zieht den Scan deshalb auf den vollen Umfang; ohne diese Stufe bleibt das
+  // Bild milchig und liest sich als verblasster Abzug statt als Scan. Die
+  // Kurvenform bleibt erhalten, nur der Umfang wird gedehnt.
+  c = (c - uBlackPoint) / max(uWhitePoint - uBlackPoint, 0.001);
+
+  c *= uScannerGain;
+
+  // Grundschleier des Traegers. Wirkt vor allem in den Tiefen, wo kaum
+  // Bildsignal ihn ueberdeckt, und verschwindet zu den Lichtern hin. Flach
+  // addiert wuerde er das ganze Bild einfaerben - genau daran ist vorher die
+  // Graukarte blaustichig geworden.
+  c += uScannerLift * (1.0 - clamp(c, 0.0, 1.0));
 
   // --- Ueberblendung zum Original -------------------------------------
   vec3 original = texture(uImage, imageUv(vUv)).rgb;

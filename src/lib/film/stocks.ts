@@ -112,7 +112,7 @@ export const STOCKS: FilmStock[] = [
     ],
     grain: { size: 1.5, intensity: 0.055, channelBias: [0.85, 1.0, 1.35] },
     halation: { threshold: 0.9, radius: 1.4, strength: 0.06, tint: [1.0, 0.34, 0.16] },
-    highlightDesat: 0.35,
+    highlightDesat: 0.18,
   },
   {
     slug: "cinestill-800t",
@@ -136,7 +136,7 @@ export const STOCKS: FilmStock[] = [
     // Der Grund fuer den ganzen Film: ohne Anti-Halation-Schicht streut Licht
     // durch den Traeger zurueck in die Emulsion. Daher der breite rote Hof.
     halation: { threshold: 0.45, radius: 2.6, strength: 0.4, tint: [1.0, 0.16, 0.08] },
-    highlightDesat: 0.28,
+    highlightDesat: 0.16,
   },
   {
     slug: "tri-x-400",

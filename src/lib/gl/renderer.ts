@@ -371,6 +371,8 @@ export class FilmRenderer {
     gl.uniform3fv(this.developPass.loc("uScannerLift"), lift);
     gl.uniform3fv(this.developPass.loc("uScannerGain"), gain);
     gl.uniform1f(this.developPass.loc("uScannerSat"), scanner.saturation);
+    gl.uniform1f(this.developPass.loc("uBlackPoint"), scanner.blackPoint);
+    gl.uniform1f(this.developPass.loc("uWhitePoint"), scanner.whitePoint);
 
     gl.uniform1f(this.developPass.loc("uStrength"), p.strength);
     this.drawTo(null);
