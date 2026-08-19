@@ -973,3 +973,18 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 3px;
   padding: 0.625rem 0.75rem;
 }
+
+/* ------------------------------------------------------------- Bildformat */
+
+.feld-hinweis {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-faint);
+  margin: 0.5rem 0 0;
+}
+
+/* Zugeschnitten laesst sich der Ausschnitt im Bild verschieben. */
+.frame.shiftable {
+  cursor: move;
+  touch-action: none;
+}

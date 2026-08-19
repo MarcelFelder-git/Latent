@@ -59,10 +59,16 @@ uniform vec3 uWhiteBalance;     // Verstaerkung pro Kanal
 uniform mat3 uCrosstalk;
 uniform float uMonochrome;      // 0 oder 1
 uniform vec3 uSpectral;         // spektrale Wichtung fuer Schwarzweiss
+uniform vec2 uCropOffset;       // Ausschnitt, Ursprung oben links
+uniform vec2 uCropSize;
 ${COMMON}
 
 void main() {
-  vec3 lin = srgbToLinear(texture(uImage, imageUv(vUv)).rgb);
+  // Der Ausschnitt wird beim Abtasten angewandt, nicht durch Zuschneiden des
+  // Bildes: so bleibt die Textur unveraendert und ein Verschieben des
+  // Ausschnitts kostet nichts ausser einem neuen Uniform.
+  vec2 uv = uCropOffset + imageUv(vUv) * uCropSize;
+  vec3 lin = srgbToLinear(texture(uImage, uv).rgb);
   lin *= exp2(uExposure) * uWhiteBalance;
 
   // Schichten sind spektral nicht sauber getrennt.

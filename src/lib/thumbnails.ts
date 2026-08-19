@@ -1,7 +1,7 @@
 import type { Adjustments } from "./film/adjustments";
 import type { ScannerProfile } from "./film/scanners";
 import type { FilmStock } from "./film/stocks";
-import { FilmRenderer } from "./gl/renderer";
+import { FilmRenderer, type Crop } from "./gl/renderer";
 
 /**
  * Kleine Vorschaubilder des *eigenen* Fotos, einmal durch jeden Film.
@@ -39,6 +39,7 @@ export function renderStockThumbnails(
   stocks: FilmStock[],
   scanner: ScannerProfile,
   adjustments: Adjustments,
+  crop: Crop,
 ): Record<string, string> {
   const renderer = getRenderer();
   if (!renderer || !shared) return {};
@@ -46,6 +47,7 @@ export function renderStockThumbnails(
   const out: Record<string, string> = {};
   try {
     renderer.setImage(bitmap);
+    renderer.setCrop(crop);
     for (const stock of stocks) {
       renderer.render({ stock, scanner, ...adjustments });
       out[stock.slug] = shared.canvas.toDataURL("image/jpeg", 0.72);

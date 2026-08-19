@@ -11,10 +11,13 @@ import {
 } from "./lib/film/presets";
 import { DEFAULT_SCANNER, scannerBySlug } from "./lib/film/scanners";
 import { DEFAULT_STOCK, STOCKS, stockBySlug } from "./lib/film/stocks";
+import { cropFor, DEFAULT_FORMAT, formatById } from "./lib/film/cropFormats";
 import { neutralizeFrom } from "./lib/film/whitebalance";
+import { buildComparisonSheet } from "./lib/comparison";
+import { developToBlob } from "./lib/exportImage";
 import { createDemoImage } from "./lib/demoImage";
 import { readExifSegment, spliceExif } from "./lib/exif";
-import { EXPORT_MAX_EDGE, FilmRenderer } from "./lib/gl/renderer";
+import { EXPORT_MAX_EDGE, FULL_CROP } from "./lib/gl/renderer";
 import { decodeLook, lookUrl } from "./lib/lookLink";
 import { renderStockThumbnails } from "./lib/thumbnails";
 
@@ -49,6 +52,8 @@ export default function App() {
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [renderVersion, setRenderVersion] = useState(0);
   const [customPresets, setCustomPresets] = useState<Preset[]>(() => loadCustomPresets());
+  const [formatId, setFormatId] = useState(DEFAULT_FORMAT.id);
+  const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -63,6 +68,29 @@ export default function App() {
     () => [...BUILTIN_PRESETS, ...customPresets],
     [customPresets],
   );
+
+  const format = formatById(formatId);
+  const crop = useMemo(
+    () =>
+      active
+        ? cropFor(format.ratio, active.bitmap.width, active.bitmap.height, cropOffset)
+        : FULL_CROP,
+    [active, format.ratio, cropOffset],
+  );
+
+  // Ein neues Format setzt die Verschiebung zurueck - der bisherige Wert
+  // bezog sich auf einen anderen Spielraum und waere nur Zufall.
+  const handleFormat = useCallback((id: string) => {
+    setFormatId(id);
+    setCropOffset({ x: 0, y: 0 });
+  }, []);
+
+  const handleCropDrag = useCallback((dx: number, dy: number) => {
+    setCropOffset((o) => ({
+      x: Math.min(0.5, Math.max(-0.5, o.x + dx)),
+      y: Math.min(0.5, Math.max(-0.5, o.y + dy)),
+    }));
+  }, []);
 
   // ---------------------------------------------------------------- Bilder
 
@@ -206,10 +234,10 @@ export default function App() {
     // Verzoegert: waehrend einer Reglerbewegung waeren das sonst drei
     // zusaetzliche Renderdurchgaenge pro Bildwiederholung.
     const timer = setTimeout(() => {
-      setThumbnails(renderStockThumbnails(active.bitmap, STOCKS, scanner, adjustments));
+      setThumbnails(renderStockThumbnails(active.bitmap, STOCKS, scanner, adjustments, crop));
     }, 250);
     return () => clearTimeout(timer);
-  }, [active, scanner, adjustments]);
+  }, [active, scanner, adjustments, crop]);
 
   // Histogramm muss nach dem Neuzeichnen lesen. Dieser Effekt haengt in App
   // und laeuft damit nach denen des Viewers - das Canvas ist dann aktuell.
@@ -309,29 +337,33 @@ export default function App() {
 
   // ------------------------------------------------------------- Export
 
-  /** Ein Foto in voller Aufloesung entwickeln und als JPEG zurueckgeben. */
-  const developToBlob = useCallback(
+  /**
+   * Ein Foto in voller Aufloesung entwickeln und als JPEG zurueckgeben. Der
+   * eigentliche Renderdurchgang laeuft im Worker, damit die Oberflaeche nicht
+   * fuer Sekunden stehenbleibt; das Einsetzen der EXIF-Daten bleibt hier,
+   * weil nur der Hauptthread die Originaldatei hat.
+   */
+  const entwickeln = useCallback(
     async (photo: Photo): Promise<Blob> => {
-      // Eigener Renderer mit hoeherem Deckel - die Bildschirmvorschau laeuft
-      // aus Geschwindigkeitsgruenden auf 2048 Pixel, das reicht fuer eine
-      // Ausgabedatei nicht.
-      const canvas = document.createElement("canvas");
-      const renderer = new FilmRenderer(canvas, EXPORT_MAX_EDGE);
-      try {
-        renderer.setImage(photo.bitmap);
-        renderer.render({ stock, scanner, ...adjustments });
-        const blob = await new Promise<Blob | null>((r) =>
-          canvas.toBlob(r, "image/jpeg", 0.94),
-        );
-        if (!blob) throw new Error("Der Browser konnte kein JPEG erzeugen.");
-        if (!photo.file) return blob;
-        const exif = await readExifSegment(photo.file);
-        return exif ? spliceExif(blob, exif) : blob;
-      } finally {
-        renderer.dispose();
-      }
+      const eigenerCrop = cropFor(
+        format.ratio,
+        photo.bitmap.width,
+        photo.bitmap.height,
+        cropOffset,
+      );
+      const blob = await developToBlob({
+        bitmap: photo.bitmap,
+        maxEdge: EXPORT_MAX_EDGE,
+        stock,
+        scanner,
+        adjustments,
+        crop: eigenerCrop,
+      });
+      if (!photo.file) return blob;
+      const exif = await readExifSegment(photo.file);
+      return exif ? spliceExif(blob, exif) : blob;
     },
-    [stock, scanner, adjustments],
+    [stock, scanner, adjustments, format.ratio, cropOffset],
   );
 
   const download = useCallback((blob: Blob, name: string) => {
@@ -357,7 +389,7 @@ export default function App() {
     if (!active) return;
     setExportStatus("Export laeuft");
     try {
-      const blob = await developToBlob(active);
+      const blob = await entwickeln(active);
       const name = dateiname(active);
       const file = new File([blob], name, { type: "image/jpeg" });
 
@@ -378,14 +410,14 @@ export default function App() {
     } finally {
       setExportStatus(null);
     }
-  }, [active, developToBlob, dateiname, download]);
+  }, [active, entwickeln, dateiname, download]);
 
   const handleExportAll = useCallback(async () => {
     if (photos.length === 0) return;
     try {
       for (let i = 0; i < photos.length; i++) {
         setExportStatus(`Bild ${i + 1} von ${photos.length}`);
-        const blob = await developToBlob(photos[i]);
+        const blob = await entwickeln(photos[i]);
         download(blob, dateiname(photos[i]));
         // Kurze Pause: mehrere Downloads kurz hintereinander laesst nicht
         // jeder Browser durch, und der Nutzer soll die Nachfrage sehen.
@@ -397,7 +429,27 @@ export default function App() {
     } finally {
       setExportStatus(null);
     }
-  }, [photos, developToBlob, dateiname, download]);
+  }, [photos, entwickeln, dateiname, download]);
+
+  const handleComparison = useCallback(async () => {
+    if (!active) return;
+    setExportStatus("Vergleich laeuft");
+    try {
+      const blob = await buildComparisonSheet(
+        active.bitmap,
+        STOCKS,
+        scanner,
+        adjustments,
+        crop,
+      );
+      download(blob, `film-lab-vergleich-${scanner.slug}.jpg`);
+      setHinweis("Vergleichsbild aller Filme gespeichert.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Vergleichsbild fehlgeschlagen.");
+    } finally {
+      setExportStatus(null);
+    }
+  }, [active, scanner, adjustments, crop, download]);
 
   const handleCopyLink = useCallback(async () => {
     const url = lookUrl({ stock: stockSlug, scanner: scannerSlug, adjustments });
@@ -454,6 +506,8 @@ export default function App() {
               onError={setError}
               canvasRef={canvasRef}
               onPick={handlePick}
+              crop={crop}
+              onCropDrag={handleCropDrag}
             />
             <div className="filmstrip">
               {photos.map((p) => (
@@ -525,6 +579,9 @@ export default function App() {
         canUndo={historyLength >= 2}
         onExport={() => void handleExport()}
         onExportAll={() => void handleExportAll()}
+        onComparison={() => void handleComparison()}
+        formatId={formatId}
+        onFormatChange={handleFormat}
         onCopyLink={() => void handleCopyLink()}
         exportStatus={exportStatus}
         canExport={active !== null}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { FilmRenderer, type RenderParams } from "../lib/gl/renderer";
+import { FilmRenderer, type Crop, type RenderParams } from "../lib/gl/renderer";
 
 interface ViewerProps {
   image: ImageBitmap | null;
@@ -13,6 +13,9 @@ interface ViewerProps {
    * solange die Pipette aktiv ist.
    */
   onPick: (u: number, v: number) => void;
+  crop: Crop;
+  /** Verschiebung des Ausschnitts, in Anteilen der Rahmenbreite bzw -hoehe. */
+  onCropDrag: (dx: number, dy: number) => void;
 }
 
 /**
@@ -27,6 +30,8 @@ export function Viewer({
   onError,
   canvasRef,
   onPick,
+  crop,
+  onCropDrag,
 }: ViewerProps) {
   const rendererRef = useRef<FilmRenderer | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -64,6 +69,7 @@ export function Viewer({
     if (!renderer || !image) return;
     try {
       renderer.setImage(image);
+      renderer.setCrop(crop);
       renderer.render(params);
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -73,6 +79,19 @@ export function Viewer({
     // darunter. Hier geht es nur um den Bildwechsel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image, onError]);
+
+  // Ausschnitt geaendert -> Renderziele anpassen und neu zeichnen.
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer || !renderer.hasImage) return;
+    try {
+      renderer.setCrop(crop);
+      renderer.render(params);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crop.x, crop.y, crop.w, crop.h, onError]);
 
   // Reglerbewegung -> neu zeichnen.
   useEffect(() => {
@@ -116,9 +135,11 @@ export function Viewer({
     });
   }, []);
 
+  const beschnitten = crop.w < 1 || crop.h < 1;
   const klassen = ["frame"];
   if (picking) klassen.push("picking");
   if (zoomed) klassen.push("zoomed");
+  else if (beschnitten) klassen.push("shiftable");
 
   return (
     <div className="viewer">
@@ -132,7 +153,15 @@ export function Viewer({
       <div
         className={klassen.join(" ")}
         ref={frameRef}
-        style={image ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
+        // Nach Beschnitt bestimmt der Ausschnitt das Verhaeltnis, nicht mehr
+        // das Original - sonst laege der Rahmen neben dem Canvasinhalt.
+        style={
+          image
+            ? {
+                aspectRatio: `${image.width * crop.w} / ${image.height * crop.h}`,
+              }
+            : undefined
+        }
         onDoubleClick={toggleZoom}
         onClick={(e) => {
           if (!picking) return;
@@ -147,19 +176,44 @@ export function Viewer({
           setPicking(false);
         }}
         onPointerDown={(e) => {
-          if (!zoomed || picking) return;
-          e.currentTarget.setPointerCapture(e.pointerId);
+          if (picking) return;
+          // Zugeschnitten laesst sich der Ausschnitt schieben, gezoomt der
+          // Bildausschnitt der Lupe. Beides gleichzeitig gibt es nicht.
+          if (!zoomed && crop.w >= 1 && crop.h >= 1) return;
+          // setPointerCapture wirft, wenn der Zeiger nicht (mehr) aktiv ist.
+          // Das darf das Ziehen nicht verhindern - ohne Capture funktioniert
+          // es weiter, es endet nur frueher, wenn der Zeiger den Rahmen
+          // verlaesst.
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          } catch {
+            /* ohne Capture weitermachen */
+          }
           panStart.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
         }}
         onPointerMove={(e) => {
           const start = panStart.current;
           if (!start) return;
-          setPan(
-            clampPan(start.px + (e.clientX - start.x), start.py + (e.clientY - start.y)),
-          );
+          const dx = e.clientX - start.x;
+          const dy = e.clientY - start.y;
+          if (zoomed) {
+            setPan(clampPan(start.px + dx, start.py + dy));
+            return;
+          }
+          const rect = e.currentTarget.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) return;
+          // Ziehen bewegt das Bild, der Ausschnitt wandert also entgegen.
+          onCropDrag(-dx / rect.width, -dy / rect.height);
+          panStart.current = { ...start, x: e.clientX, y: e.clientY };
         }}
         onPointerUp={(e) => {
-          if (panStart.current) e.currentTarget.releasePointerCapture(e.pointerId);
+          if (panStart.current) {
+            try {
+              e.currentTarget.releasePointerCapture(e.pointerId);
+            } catch {
+              /* war nie gefangen */
+            }
+          }
           panStart.current = null;
         }}
       >
@@ -192,12 +246,22 @@ export function Viewer({
               aria-valuenow={Math.round(split * 100)}
               onPointerDown={(e) => {
                 e.stopPropagation();
-                e.currentTarget.setPointerCapture(e.pointerId);
+                // Wie beim Verschieben: ein fehlgeschlagenes Capture darf das
+                // Ziehen nicht verhindern.
+                try {
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                } catch {
+                  /* ohne Capture weitermachen */
+                }
                 setDragging(true);
               }}
               onPointerMove={(e) => dragging && updateSplit(e.clientX)}
               onPointerUp={(e) => {
-                e.currentTarget.releasePointerCapture(e.pointerId);
+                try {
+                  e.currentTarget.releasePointerCapture(e.pointerId);
+                } catch {
+                  /* war nie gefangen */
+                }
                 setDragging(false);
               }}
               onKeyDown={(e) => {

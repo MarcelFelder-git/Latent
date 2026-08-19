@@ -2,6 +2,7 @@ import { useState, type RefObject } from "react";
 import { CurveDisplay } from "./CurveDisplay";
 import { Histogram } from "./Histogram";
 import type { Adjustments } from "../lib/film/adjustments";
+import { CROP_FORMATS } from "../lib/film/cropFormats";
 import type { Preset } from "../lib/film/presets";
 import { SCANNERS, type ScannerProfile } from "../lib/film/scanners";
 import { STOCKS, type FilmStock } from "../lib/film/stocks";
@@ -79,6 +80,9 @@ interface ControlsProps {
   canUndo: boolean;
   onExport: () => void;
   onExportAll: () => void;
+  onComparison: () => void;
+  formatId: string;
+  onFormatChange: (id: string) => void;
   onCopyLink: () => void;
   /** Text waehrend eines laufenden Exports, sonst null. */
   exportStatus: string | null;
@@ -106,6 +110,9 @@ export function Controls({
   canUndo,
   onExport,
   onExportAll,
+  onComparison,
+  formatId,
+  onFormatChange,
   onCopyLink,
   exportStatus,
   canExport,
@@ -313,6 +320,26 @@ export function Controls({
       )}
 
       <section>
+        <h2 className="section-label">Bildformat</h2>
+        <div className="presets">
+          {CROP_FORMATS.map((f) => (
+            <button
+              key={f.id}
+              className="preset"
+              aria-pressed={f.id === formatId}
+              title={f.hint}
+              onClick={() => onFormatChange(f.id)}
+            >
+              {f.name}
+            </button>
+          ))}
+        </div>
+        {formatId !== "frei" && (
+          <p className="feld-hinweis">Im Bild ziehen verschiebt den Ausschnitt.</p>
+        )}
+      </section>
+
+      <section>
         <h2 className="section-label">Labor</h2>
         <div className="stocks">
           {SCANNERS.map((s) => (
@@ -388,6 +415,13 @@ export function Controls({
             Alle {photoCount}
           </button>
         )}
+        <button
+          onClick={onComparison}
+          disabled={!canExport || exportStatus !== null}
+          title="Alle Filme nebeneinander als ein Bild"
+        >
+          Vergleich
+        </button>
       </div>
     </aside>
   );

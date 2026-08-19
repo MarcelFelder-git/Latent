@@ -45,6 +45,19 @@ const HALATION_DOWNSAMPLE = 8;
  */
 const HALATION_WIDE_FACTOR = 2.2;
 
+/**
+ * Beschnitt in Bildkoordinaten, Ursprung oben links, alles auf 0..1 normiert.
+ * Kein Beschnitt entspricht {x: 0, y: 0, w: 1, h: 1}.
+ */
+export interface Crop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export const FULL_CROP: Crop = { x: 0, y: 0, w: 1, h: 1 };
+
 export interface RenderParams {
   stock: FilmStock;
   scanner: ScannerProfile;
@@ -164,17 +177,32 @@ export class FilmRenderer {
   private colorInternal: number;
   readonly hasFloatBuffers: boolean;
 
+  /**
+   * Quelle und Beschnitt werden gemerkt, damit ein neuer Ausschnitt nur die
+   * Renderziele neu anlegen muss. Die Textur erneut hochzuladen waere bei
+   * jedem Ziehen am Ausschnitt zweistellige Megabyte an Arbeit.
+   */
+  private source: ImageBitmap | HTMLImageElement | null = null;
+  private crop: Crop = FULL_CROP;
+
+  /**
+   * Nimmt auch ein OffscreenCanvas - so laeuft derselbe Renderkern im Worker,
+   * wo der Export hingehoert, ohne dass die Oberflaeche einfriert.
+   */
   constructor(
-    private canvas: HTMLCanvasElement,
+    private canvas: HTMLCanvasElement | OffscreenCanvas,
     private maxEdge: number = PREVIEW_MAX_EDGE,
   ) {
+    // Die Ueberladungen von getContext lassen sich fuer die Vereinigung aus
+    // Canvas und OffscreenCanvas nicht aufloesen - beide liefern hier
+    // denselben Kontext, also einmal explizit sagen, was herauskommt.
     const gl = canvas.getContext("webgl2", {
       alpha: false,
       antialias: false,
       depth: false,
       stencil: false,
       preserveDrawingBuffer: true, // damit toBlob() den Export liefern kann
-    });
+    }) as WebGL2RenderingContext | null;
     if (!gl) throw new Error("WebGL2 wird von diesem Browser nicht unterstuetzt.");
     this.gl = gl;
 
@@ -242,15 +270,10 @@ export class FilmRenderer {
     this.gl.deleteFramebuffer(t.fbo);
   }
 
-  /** Bild laden und alle Renderziele auf die passende Groesse bringen. */
+  /** Bild laden. Der Ausschnitt bleibt erhalten. */
   setImage(source: ImageBitmap | HTMLImageElement): void {
     const gl = this.gl;
-    const scale = Math.min(1, this.maxEdge / Math.max(source.width, source.height));
-    this.imageWidth = Math.max(1, Math.round(source.width * scale));
-    this.imageHeight = Math.max(1, Math.round(source.height * scale));
-
-    this.canvas.width = this.imageWidth;
-    this.canvas.height = this.imageHeight;
+    this.source = source;
 
     if (this.imageTex) gl.deleteTexture(this.imageTex);
     this.imageTex = gl.createTexture()!;
@@ -263,6 +286,34 @@ export class FilmRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
+    this.applyCrop();
+  }
+
+  /** Ausschnitt setzen und die Renderziele darauf anpassen. */
+  setCrop(crop: Crop): void {
+    this.crop = crop;
+    if (this.source) this.applyCrop();
+  }
+
+  /**
+   * Groesse der Ausgabe ergibt sich aus Quelle mal Ausschnitt, gedeckelt auf
+   * maxEdge. Dass ein enger Ausschnitt eine kleinere Ausgabe hat, ist genau
+   * richtig: das Korn bleibt ein konstanter Bruchteil der *Ausgabe*, wird
+   * beim Beschneiden also groesser - so wie bei einer Vergroesserung vom
+   * Negativ.
+   */
+  private applyCrop(): void {
+    const src = this.source;
+    if (!src) return;
+    const cw = src.width * this.crop.w;
+    const ch = src.height * this.crop.h;
+    const scale = Math.min(1, this.maxEdge / Math.max(cw, ch));
+    this.imageWidth = Math.max(1, Math.round(cw * scale));
+    this.imageHeight = Math.max(1, Math.round(ch * scale));
+
+    this.canvas.width = this.imageWidth;
+    this.canvas.height = this.imageHeight;
+
     this.disposeTarget(this.scene);
     this.disposeTarget(this.haloA);
     this.disposeTarget(this.haloB);
@@ -274,6 +325,11 @@ export class FilmRenderer {
     this.haloA = this.makeTarget(hw, hh);
     this.haloB = this.makeTarget(hw, hh);
     this.haloNarrow = this.makeTarget(hw, hh);
+  }
+
+  /** Ausgabegroesse in Pixeln, nach Beschnitt und Deckelung. */
+  get outputSize(): { width: number; height: number } {
+    return { width: this.imageWidth, height: this.imageHeight };
   }
 
   get hasImage(): boolean {
@@ -316,6 +372,8 @@ export class FilmRenderer {
     );
     gl.uniform1f(this.scenePass.loc("uMonochrome"), stock.monochrome ? 1 : 0);
     gl.uniform3fv(this.scenePass.loc("uSpectral"), stock.spectral);
+    gl.uniform2f(this.scenePass.loc("uCropOffset"), this.crop.x, this.crop.y);
+    gl.uniform2f(this.scenePass.loc("uCropSize"), this.crop.w, this.crop.h);
     this.drawTo(this.scene);
 
     // --- 2) Helle Bereiche isolieren ----------------------------------
