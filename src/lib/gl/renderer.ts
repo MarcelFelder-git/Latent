@@ -1,5 +1,7 @@
+import { pushCurve, pushGrain } from "../film/curve";
+import type { ScannerProfile } from "../film/scanners";
 import type { FilmStock } from "../film/stocks";
-import { BLUR_SRC, COMPOSITE_SRC, GRADE_SRC, HIGHLIGHT_SRC, VERT_SRC } from "./shaders";
+import { BLUR_SRC, DEVELOP_SRC, HIGHLIGHT_SRC, SCENE_SRC, VERT_SRC } from "./shaders";
 
 /**
  * Der Renderkern. Bewusst ohne DOM-Zugriffe ausser dem Canvas selbst - damit
@@ -26,14 +28,35 @@ const HALATION_ITERATIONS = 2;
 
 export interface RenderParams {
   stock: FilmStock;
+  scanner: ScannerProfile;
   /** Belichtungskorrektur in Blendenstufen. */
   exposure: number;
-  /** Faktor auf das Gamma des Stocks. 1 = wie hinterlegt. */
-  contrast: number;
+  /** Push/Pull in Blendenstufen: laenger oder kuerzer entwickeln. */
+  push: number;
+  /** -1 kuehl bis +1 warm. */
+  warmth: number;
+  /** 0 = Original, 1 = volle Emulation. */
+  strength: number;
   /** Faktor auf die Kornstaerke des Stocks. */
   grain: number;
   /** Faktor auf die Halationsstaerke des Stocks. */
   halation: number;
+  /** 0 = keine Vignette. */
+  vignette: number;
+}
+
+/**
+ * Warm = mehr Rot, weniger Blau. Gruen bleibt als Anker stehen, damit die
+ * Gesamthelligkeit beim Drehen nicht mitwandert.
+ */
+function whiteBalanceGain(warmth: number): [number, number, number] {
+  return [1 + warmth * 0.22, 1, 1 - warmth * 0.22];
+}
+
+/** Drei Kanalwerte auf ihren Mittelwert ziehen - fuer Schwarzweissfilm. */
+function flatten(v: [number, number, number]): [number, number, number] {
+  const m = (v[0] + v[1] + v[2]) / 3;
+  return [m, m, m];
 }
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
@@ -104,22 +127,28 @@ export class FilmRenderer {
   private vao: WebGLVertexArrayObject;
   private quad: WebGLBuffer;
 
-  private gradePass: Pass;
+  private scenePass: Pass;
   private highlightPass: Pass;
   private blurPass: Pass;
-  private compositePass: Pass;
+  private developPass: Pass;
 
   private imageTex: WebGLTexture | null = null;
-  private grade: Target | null = null;
-  private halfA: Target | null = null;
-  private halfB: Target | null = null;
+  private scene: Target | null = null;
+  private haloA: Target | null = null;
+  private haloB: Target | null = null;
 
   private imageWidth = 0;
   private imageHeight = 0;
 
-  /** RGBA16F als Zwischenformat - 8 Bit wuerden im Linearlicht sichtbar banden. */
+  /**
+   * RGBA16F als Zwischenformat. Hier nicht optional: der Szenenpuffer haelt
+   * *lineares* Licht, und das geht deutlich ueber 1.0 hinaus - eine Lampe
+   * kann bei 20 liegen. In 8 Bit waere sie auf 1.0 abgeschnitten und es gaebe
+   * ueberhaupt keine Halation.
+   */
   private colorType: number;
   private colorInternal: number;
+  readonly hasFloatBuffers: boolean;
 
   constructor(private canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", {
@@ -127,27 +156,28 @@ export class FilmRenderer {
       antialias: false,
       depth: false,
       stencil: false,
-      preserveDrawingBuffer: true, // damit spaeter toBlob() den Export liefern kann
+      preserveDrawingBuffer: true, // damit toBlob() den Export liefern kann
     });
     if (!gl) throw new Error("WebGL2 wird von diesem Browser nicht unterstuetzt.");
     this.gl = gl;
 
-    // Ohne diese Erweiterung laesst sich nicht in Half-Float-Texturen rendern.
-    // Dann faellt die Pipeline auf 8 Bit zurueck: sichtbar schlechter in den
-    // Verlaeufen, aber besser als gar kein Bild.
-    if (gl.getExtension("EXT_color_buffer_float")) {
+    this.hasFloatBuffers = gl.getExtension("EXT_color_buffer_float") !== null;
+    if (this.hasFloatBuffers) {
       this.colorInternal = gl.RGBA16F;
       this.colorType = gl.HALF_FLOAT;
     } else {
-      console.warn("EXT_color_buffer_float fehlt - Pipeline laeuft auf 8 Bit.");
+      console.warn(
+        "EXT_color_buffer_float fehlt - lineares Licht wird bei 1.0 " +
+          "abgeschnitten, die Halation faellt entsprechend schwach aus.",
+      );
       this.colorInternal = gl.RGBA8;
       this.colorType = gl.UNSIGNED_BYTE;
     }
 
-    this.gradePass = new Pass(gl, GRADE_SRC);
+    this.scenePass = new Pass(gl, SCENE_SRC);
     this.highlightPass = new Pass(gl, HIGHLIGHT_SRC);
     this.blurPass = new Pass(gl, BLUR_SRC);
-    this.compositePass = new Pass(gl, COMPOSITE_SRC);
+    this.developPass = new Pass(gl, DEVELOP_SRC);
 
     // Ein einzelnes uebergrosses Dreieck deckt den Clip-Space ab - eine Kante
     // weniger als ein Quad aus zwei Dreiecken.
@@ -209,22 +239,22 @@ export class FilmRenderer {
     this.imageTex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.imageTex);
     // Kein UNPACK_FLIP_Y_WEBGL - das Flag wird fuer ImageBitmap-Quellen
-    // ignoriert. Gedreht wird im Grade-Shader, siehe shaders.ts.
+    // ignoriert. Gedreht wird in den Shadern, siehe imageUv() in shaders.ts.
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-    this.disposeTarget(this.grade);
-    this.disposeTarget(this.halfA);
-    this.disposeTarget(this.halfB);
+    this.disposeTarget(this.scene);
+    this.disposeTarget(this.haloA);
+    this.disposeTarget(this.haloB);
 
-    const halfW = Math.max(8, Math.ceil(this.imageWidth / HALATION_DOWNSAMPLE));
-    const halfH = Math.max(8, Math.ceil(this.imageHeight / HALATION_DOWNSAMPLE));
-    this.grade = this.makeTarget(this.imageWidth, this.imageHeight);
-    this.halfA = this.makeTarget(halfW, halfH);
-    this.halfB = this.makeTarget(halfW, halfH);
+    const hw = Math.max(8, Math.ceil(this.imageWidth / HALATION_DOWNSAMPLE));
+    const hh = Math.max(8, Math.ceil(this.imageHeight / HALATION_DOWNSAMPLE));
+    this.scene = this.makeTarget(this.imageWidth, this.imageHeight);
+    this.haloA = this.makeTarget(hw, hh);
+    this.haloB = this.makeTarget(hw, hh);
   }
 
   get hasImage(): boolean {
@@ -245,46 +275,35 @@ export class FilmRenderer {
 
   render(p: RenderParams): void {
     const gl = this.gl;
-    if (!this.imageTex || !this.grade || !this.halfA || !this.halfB) return;
+    if (!this.imageTex || !this.scene || !this.haloA || !this.haloB) return;
 
-    const { stock } = p;
+    const { stock, scanner } = p;
     gl.bindVertexArray(this.vao);
 
-    // --- 1) Belichtung -> Dichte -------------------------------------
-    this.gradePass.use();
+    // --- 1) Szene: lineares Licht -------------------------------------
+    this.scenePass.use();
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.imageTex);
-    gl.uniform1i(this.gradePass.loc("uImage"), 0);
-    gl.uniform1f(this.gradePass.loc("uExposure"), p.exposure);
+    gl.uniform1i(this.scenePass.loc("uImage"), 0);
+    gl.uniform1f(this.scenePass.loc("uExposure"), p.exposure);
+    gl.uniform3fv(this.scenePass.loc("uWhiteBalance"), whiteBalanceGain(p.warmth));
     // transpose = true, damit die Matrix in stocks.ts zeilenweise lesbar bleibt.
     gl.uniformMatrix3fv(
-      this.gradePass.loc("uCrosstalk"), true, new Float32Array(stock.crosstalk),
+      this.scenePass.loc("uCrosstalk"), true, new Float32Array(stock.crosstalk),
     );
-    const curves = [
-      ["uCurveR", stock.curve.r],
-      ["uCurveG", stock.curve.g],
-      ["uCurveB", stock.curve.b],
-    ] as const;
-    for (const [name, c] of curves) {
-      gl.uniform4f(
-        this.gradePass.loc(name),
-        c.speed,
-        c.gamma * p.contrast,
-        c.toe,
-        c.shoulder,
-      );
-    }
-    this.drawTo(this.grade);
+    gl.uniform1f(this.scenePass.loc("uMonochrome"), stock.monochrome ? 1 : 0);
+    gl.uniform3fv(this.scenePass.loc("uSpectral"), stock.spectral);
+    this.drawTo(this.scene);
 
-    // --- 2) Lichter isolieren ----------------------------------------
+    // --- 2) Helle Bereiche isolieren ----------------------------------
     this.highlightPass.use();
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.grade.tex);
+    gl.bindTexture(gl.TEXTURE_2D, this.scene.tex);
     gl.uniform1i(this.highlightPass.loc("uSrc"), 0);
     gl.uniform1f(this.highlightPass.loc("uThreshold"), stock.halation.threshold);
-    this.drawTo(this.halfA);
+    this.drawTo(this.haloA);
 
-    // --- 3+4) Streuung: zwei Gauss-Durchgaenge ------------------------
+    // --- 3+4) Streuung: zwei Gauss-Durchlaeufe -------------------------
     // radius ist die Tap-Schrittweite im verkleinerten Puffer, nicht in
     // Bildpixeln. Werte deutlich ueber ~3 fangen wieder an zu ringen.
     const r = stock.halation.radius;
@@ -293,40 +312,67 @@ export class FilmRenderer {
     gl.activeTexture(gl.TEXTURE0);
 
     for (let i = 0; i < HALATION_ITERATIONS; i++) {
-      gl.bindTexture(gl.TEXTURE_2D, this.halfA.tex);
-      gl.uniform2f(this.blurPass.loc("uDirection"), r / this.halfA.width, 0);
-      this.drawTo(this.halfB);
+      gl.bindTexture(gl.TEXTURE_2D, this.haloA.tex);
+      gl.uniform2f(this.blurPass.loc("uDirection"), r / this.haloA.width, 0);
+      this.drawTo(this.haloB);
 
-      gl.bindTexture(gl.TEXTURE_2D, this.halfB.tex);
-      gl.uniform2f(this.blurPass.loc("uDirection"), 0, r / this.halfA.height);
-      this.drawTo(this.halfA);
+      gl.bindTexture(gl.TEXTURE_2D, this.haloB.tex);
+      gl.uniform2f(this.blurPass.loc("uDirection"), 0, r / this.haloA.height);
+      this.drawTo(this.haloA);
     }
 
-    // --- 5) Zusammensetzen -------------------------------------------
-    this.compositePass.use();
+    // --- 5) Entwickeln -------------------------------------------------
+    this.developPass.use();
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.grade.tex);
-    gl.uniform1i(this.compositePass.loc("uGraded"), 0);
+    gl.bindTexture(gl.TEXTURE_2D, this.scene.tex);
+    gl.uniform1i(this.developPass.loc("uScene"), 0);
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.halfA.tex);
-    gl.uniform1i(this.compositePass.loc("uHalation"), 1);
+    gl.bindTexture(gl.TEXTURE_2D, this.haloA.tex);
+    gl.uniform1i(this.developPass.loc("uHalation"), 1);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.imageTex);
+    gl.uniform1i(this.developPass.loc("uImage"), 2);
 
-    gl.uniform2f(this.compositePass.loc("uImageSize"), this.imageWidth, this.imageHeight);
-    gl.uniform3fv(this.compositePass.loc("uHalationTint"), stock.halation.tint);
+    const curves = [
+      ["uCurveR", stock.curve.r],
+      ["uCurveG", stock.curve.g],
+      ["uCurveB", stock.curve.b],
+    ] as const;
+    for (const [name, base] of curves) {
+      const c = pushCurve(base, p.push);
+      gl.uniform4f(this.developPass.loc(name), c.speed, c.gamma, c.toe, c.shoulder);
+    }
+
+    gl.uniform3fv(this.developPass.loc("uHalationTint"), stock.halation.tint);
     gl.uniform1f(
-      this.compositePass.loc("uHalationStrength"),
+      this.developPass.loc("uHalationStrength"),
       stock.halation.strength * p.halation,
     );
-    gl.uniform1f(this.compositePass.loc("uGrainSize"), stock.grain.size);
+    gl.uniform1f(this.developPass.loc("uHighlightDesat"), stock.highlightDesat);
+
+    gl.uniform2f(this.developPass.loc("uImageSize"), this.imageWidth, this.imageHeight);
+    gl.uniform1f(this.developPass.loc("uGrainSize"), stock.grain.size);
     gl.uniform1f(
-      this.compositePass.loc("uGrainIntensity"),
-      stock.grain.intensity * p.grain,
+      this.developPass.loc("uGrainIntensity"),
+      stock.grain.intensity * p.grain * pushGrain(p.push),
     );
-    gl.uniform3fv(this.compositePass.loc("uGrainBias"), stock.grain.channelBias);
+    gl.uniform3fv(this.developPass.loc("uGrainBias"), stock.grain.channelBias);
     // Fester Startwert: ein Foto hat festes Korn, es soll nicht flimmern.
-    gl.uniform1f(this.compositePass.loc("uSeed"), 11.7);
-    gl.uniform3fv(this.compositePass.loc("uScannerLift"), stock.scanner.lift);
-    gl.uniform3fv(this.compositePass.loc("uScannerGain"), stock.scanner.gain);
+    gl.uniform1f(this.developPass.loc("uSeed"), 11.7);
+
+    gl.uniform1f(this.developPass.loc("uVignette"), p.vignette);
+    gl.uniform1f(this.developPass.loc("uMonochrome"), stock.monochrome ? 1 : 0);
+
+    // Die Scannerprofile heben die Kanaele unterschiedlich an - das ist bei
+    // Farbfilm der halbe Charakter, wuerde einem Graustufenbild aber einen
+    // Farbstich verpassen. Fuer Schwarzweiss also einebnen.
+    const lift = stock.monochrome ? flatten(scanner.lift) : scanner.lift;
+    const gain = stock.monochrome ? flatten(scanner.gain) : scanner.gain;
+    gl.uniform3fv(this.developPass.loc("uScannerLift"), lift);
+    gl.uniform3fv(this.developPass.loc("uScannerGain"), gain);
+    gl.uniform1f(this.developPass.loc("uScannerSat"), scanner.saturation);
+
+    gl.uniform1f(this.developPass.loc("uStrength"), p.strength);
     this.drawTo(null);
 
     gl.bindVertexArray(null);
@@ -334,14 +380,14 @@ export class FilmRenderer {
 
   dispose(): void {
     const gl = this.gl;
-    this.disposeTarget(this.grade);
-    this.disposeTarget(this.halfA);
-    this.disposeTarget(this.halfB);
+    this.disposeTarget(this.scene);
+    this.disposeTarget(this.haloA);
+    this.disposeTarget(this.haloB);
     if (this.imageTex) gl.deleteTexture(this.imageTex);
-    this.gradePass.dispose();
+    this.scenePass.dispose();
     this.highlightPass.dispose();
     this.blurPass.dispose();
-    this.compositePass.dispose();
+    this.developPass.dispose();
     gl.deleteBuffer(this.quad);
     gl.deleteVertexArray(this.vao);
   }

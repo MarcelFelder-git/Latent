@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { FilmRenderer, type RenderParams } from "../lib/gl/renderer";
 
 interface ViewerProps {
@@ -17,7 +17,11 @@ interface ViewerProps {
  */
 export function Viewer({ image, originalUrl, params, onError, canvasRef }: ViewerProps) {
   const rendererRef = useRef<FilmRenderer | null>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+
   const [comparing, setComparing] = useState(false);
+  const [split, setSplit] = useState(0.5);
+  const [dragging, setDragging] = useState(false);
 
   // Renderer einmalig aufbauen.
   useEffect(() => {
@@ -61,23 +65,61 @@ export function Viewer({ image, originalUrl, params, onError, canvasRef }: Viewe
     }
   }, [params, onError]);
 
+  const updateSplit = useCallback((clientX: number) => {
+    const rect = frameRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) return;
+    setSplit(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)));
+  }, []);
+
   return (
     <div className="viewer">
-      <div
-        className="frame"
-        onPointerDown={() => setComparing(true)}
-        onPointerUp={() => setComparing(false)}
-        onPointerLeave={() => setComparing(false)}
-      >
+      <div className="frame" ref={frameRef}>
         <canvas ref={canvasRef} />
+
         {comparing && originalUrl && (
-          <img className="compare" src={originalUrl} alt="Original ohne Emulation" />
+          <>
+            <img
+              className="compare"
+              src={originalUrl}
+              alt="Original ohne Emulation"
+              // Links das Original, rechts die Emulation.
+              style={{ clipPath: `inset(0 ${(1 - split) * 100}% 0 0)` }}
+            />
+            <div
+              className="split-handle"
+              style={{ left: `${split * 100}%` }}
+              role="slider"
+              tabIndex={0}
+              aria-label="Vergleichsposition"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(split * 100)}
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                setDragging(true);
+              }}
+              onPointerMove={(e) => dragging && updateSplit(e.clientX)}
+              onPointerUp={(e) => {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+                setDragging(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowLeft") setSplit((s) => Math.max(0, s - 0.04));
+                if (e.key === "ArrowRight") setSplit((s) => Math.min(1, s + 0.04));
+              }}
+            />
+            <span className="compare-tag left">Original</span>
+            <span className="compare-tag right">{params.stock.name}</span>
+          </>
         )}
-        {originalUrl && (
-          <span className="compare-hint">
-            {comparing ? "Original" : "Halten zum Vergleichen"}
-          </span>
-        )}
+
+        <button
+          className="compare-toggle"
+          aria-pressed={comparing}
+          onClick={() => setComparing((c) => !c)}
+        >
+          {comparing ? "Vergleich aus" : "Vergleich"}
+        </button>
       </div>
     </div>
   );
