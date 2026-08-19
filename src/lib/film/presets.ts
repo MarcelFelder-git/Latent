@@ -74,7 +74,7 @@ export const BUILTIN_PRESETS: Preset[] = [
   },
 ];
 
-const KEY = "film-lab.presets.v1";
+const KEY = "latent.presets.v1";
 
 /**
  * localStorage kann fehlen oder werfen - im privaten Modus mancher Browser

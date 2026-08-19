@@ -1,4 +1,7 @@
-# Film Lab
+# Latent
+
+*The latent image is the invisible picture that exists in exposed film
+before development. This is where it becomes visible.*
 
 A **film emulation darkroom that runs entirely in the browser**. Drop in a photo,
 pick an emulsion, and watch it develop — characteristic curves per colour layer,

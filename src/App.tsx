@@ -528,7 +528,7 @@ export default function App() {
         adjustments,
         crop,
       );
-      download(blob, `film-lab-vergleich-${scanner.slug}.jpg`);
+      download(blob, `latent-vergleich-${scanner.slug}.jpg`);
       setHinweis("Vergleichsbild aller Filme gespeichert.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Vergleichsbild fehlgeschlagen.");
@@ -576,6 +576,16 @@ export default function App() {
       }}
     >
       <main className="stage">
+        {/*
+          Die Kennzeichnung stand vorher nur auf der Ablageflaeche und
+          verschwand, sobald ein Foto geladen war - danach hatte die Seite
+          keinen Namen mehr. Jetzt steht sie durchgehend ueber dem Bild.
+        */}
+        <header className="kopf">
+          <span className="kopf-name">Latent</span>
+          <span className="kopf-untertitel">Filmemulation im Browser</span>
+        </header>
+
         {error && (
           <p className="error" role="alert">
             {error}
@@ -634,10 +644,11 @@ export default function App() {
           </>
         ) : (
           <div className="dropzone">
-            <h1>Film Lab</h1>
+            {/* Der Name steht in der Kopfzeile - hier zaehlt, was zu tun ist. */}
+            <h1>Foto hierher ziehen</h1>
             <p>
-              Foto hierher ziehen, einfuegen oder auswaehlen. Alles laeuft lokal im
-              Browser - nichts wird hochgeladen.
+              Oder einfuegen, auswaehlen oder aufnehmen. Alles laeuft lokal im
+              Browser - es wird nichts hochgeladen.
             </p>
             <div className="dropzone-actions">
               <button className="pick" onClick={() => fileInputRef.current?.click()}>

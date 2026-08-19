@@ -442,7 +442,7 @@ export class FilmRenderer {
     ctx.fillText(text, 26, LABEL_H / 2 + 1);
     ctx.font = "22px sans-serif";
     ctx.globalAlpha = 0.75;
-    const rechts = "FILM LAB";
+    const rechts = "LATENT";
     ctx.fillText(rechts, LABEL_W - 26 - ctx.measureText(rechts).width, LABEL_H / 2 + 1);
     ctx.globalAlpha = 1;
 
