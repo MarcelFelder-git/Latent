@@ -1,0 +1,339 @@
+/*
+ * Dunkelkammer-Rotlicht, nicht VS-Code-Theme. Die UI bleibt monochrom mit
+ * einem einzigen warmen Akzent - die Farbe im Bild soll vom Foto kommen,
+ * nicht vom Interface.
+ */
+:root {
+  --bg: #141210;
+  --surface: #1c1917;
+  --surface-hi: #24201d;
+  --border: #2c2724;
+  --border-hi: #3d3733;
+  --text: #e8e3dc;
+  --text-dim: #8d857b;
+  --text-faint: #5d564f;
+  --accent: #d4542a;
+
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+@media (min-width: 900px) {
+  .app {
+    flex-direction: row;
+  }
+}
+
+/* ---------------------------------------------------------------- Viewer */
+
+.viewer {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  position: relative;
+}
+
+.frame {
+  position: relative;
+  display: flex;
+  max-width: 100%;
+  max-height: 100%;
+  box-shadow: 0 1.5rem 3rem rgb(0 0 0 / 0.5);
+}
+
+.frame canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* Halte-zum-Vergleichen: das Original liegt deckungsgleich darueber. */
+.compare {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.compare-hint {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: rgb(0 0 0 / 0.55);
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+}
+
+/* -------------------------------------------------------------- Dropzone */
+
+.dropzone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: 1.5rem;
+  border: 1px dashed var(--border-hi);
+  border-radius: 4px;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 2rem;
+  transition: border-color 120ms, color 120ms;
+}
+
+.dropzone.over {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.dropzone h1 {
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin: 0;
+  color: var(--text);
+}
+
+.dropzone p {
+  margin: 0;
+  font-size: 0.875rem;
+  max-width: 26rem;
+  line-height: 1.6;
+}
+
+.dropzone input[type="file"] {
+  display: none;
+}
+
+.pick {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--border-hi);
+  border-radius: 3px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
+.pick:hover {
+  border-color: var(--accent);
+}
+
+/* -------------------------------------------------------------- Controls */
+
+.controls {
+  flex-shrink: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  overflow-y: auto;
+}
+
+@media (min-width: 900px) {
+  .controls {
+    width: 20rem;
+    border-top: none;
+    border-left: 1px solid var(--border);
+  }
+}
+
+.section-label {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 0 0 0.625rem;
+}
+
+.stocks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.stock {
+  text-align: left;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.625rem 0.75rem;
+  cursor: pointer;
+  color: var(--text-dim);
+  transition: border-color 120ms, color 120ms, background 120ms;
+}
+
+.stock:hover {
+  border-color: var(--border-hi);
+}
+
+.stock[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--surface-hi);
+  color: var(--text);
+}
+
+.stock-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.stock-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Kameragravur-Logik: alles Numerische laeuft in Mono. */
+.stock-iso {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.stock-blurb {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  margin-top: 0.1875rem;
+  color: var(--text-faint);
+}
+
+.sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.375rem;
+}
+
+.slider-name {
+  font-size: 0.8125rem;
+  color: var(--text-dim);
+}
+
+.slider-value {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+  width: 100%;
+  appearance: none;
+  background: none;
+  height: 1rem;
+  cursor: pointer;
+  margin: 0;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--border-hi);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: -0.375rem;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 1px;
+  background: var(--border-hi);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.actions button {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.5rem;
+  cursor: pointer;
+}
+
+.actions button:hover {
+  border-color: var(--border-hi);
+  color: var(--text);
+}
+
+.error {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0.75rem;
+}
