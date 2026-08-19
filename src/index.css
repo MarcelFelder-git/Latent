@@ -1055,3 +1055,60 @@ input[type="range"]::-moz-range-thumb {
   line-height: 1.55;
   color: var(--text-dim);
 }
+
+/* -------------------------------------------------------- Szenenerkennung */
+
+.ladebalken {
+  margin-top: 0.5rem;
+  height: 2px;
+  background: var(--border);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.ladebalken span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+.modell-schalter {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-top: 0.625rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.modell-schalter input {
+  margin: 0.1875rem 0 0;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.modell-hinweis {
+  display: block;
+  margin-top: 0.1875rem;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.suggestion-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.suggestion-quelle {
+  font-family: var(--mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}

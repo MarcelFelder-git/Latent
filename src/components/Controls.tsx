@@ -5,6 +5,7 @@ import type { Adjustments } from "../lib/film/adjustments";
 import { CROP_FORMATS } from "../lib/film/cropFormats";
 import type { Preset } from "../lib/film/presets";
 import type { Suggestion } from "../lib/film/suggest";
+import type { LoadProgress } from "../lib/semantic";
 import { SCANNERS, type ScannerProfile } from "../lib/film/scanners";
 import { STOCKS, type FilmStock } from "../lib/film/stocks";
 
@@ -88,6 +89,9 @@ interface ControlsProps {
   onBorderChange: (on: boolean) => void;
   onSuggest: () => void;
   suggestion: Suggestion | null;
+  useModel: boolean;
+  onUseModelChange: (on: boolean) => void;
+  modelStatus: LoadProgress | null;
   onCopyLink: () => void;
   /** Text waehrend eines laufenden Exports, sonst null. */
   exportStatus: string | null;
@@ -122,6 +126,9 @@ export function Controls({
   onBorderChange,
   onSuggest,
   suggestion,
+  useModel,
+  onUseModelChange,
+  modelStatus,
   onCopyLink,
   exportStatus,
   canExport,
@@ -143,12 +150,43 @@ export function Controls({
     <aside className="controls">
       <section>
         <h2 className="section-label">Vorschlag</h2>
-        <button className="suggest" onClick={onSuggest} disabled={!canExport}>
-          Passenden Film vorschlagen
+        <button
+          className="suggest"
+          onClick={onSuggest}
+          disabled={!canExport || modelStatus !== null}
+        >
+          {modelStatus ? modelStatus.text : "Passenden Film vorschlagen"}
         </button>
+
+        {modelStatus?.ratio != null && (
+          <div className="ladebalken">
+            <span style={{ width: `${Math.round(modelStatus.ratio * 100)}%` }} />
+          </div>
+        )}
+
+        <label className="modell-schalter">
+          <input
+            type="checkbox"
+            checked={useModel}
+            onChange={(e) => onUseModelChange(e.target.checked)}
+          />
+          <span>
+            Szene erkennen
+            <span className="modell-hinweis">
+              Laedt beim ersten Mal rund 50 MB und laeuft danach lokal.
+              Unterscheidet Gesichter von Sand, was Farbwerte allein nicht koennen.
+            </span>
+          </span>
+        </label>
+
         {suggestion && (
           <div className="suggestion">
-            <p className="suggestion-head">{suggestion.headline}</p>
+            <p className="suggestion-head">
+              {suggestion.headline}
+              <span className="suggestion-quelle">
+                {suggestion.usedModel ? "Szene erkannt" : "nur Farbwerte"}
+              </span>
+            </p>
             <ul>
               {suggestion.reasons.map((r, i) => (
                 <li key={i}>{r}</li>

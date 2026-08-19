@@ -15,6 +15,12 @@ import { cropFor, DEFAULT_FORMAT, formatById } from "./lib/film/cropFormats";
 import { suggestLook, type Suggestion } from "./lib/film/suggest";
 import { neutralizeFrom } from "./lib/film/whitebalance";
 import { analyzeImage } from "./lib/analyze";
+import {
+  classifyScene,
+  isSemanticLoaded,
+  loadSemantic,
+  type LoadProgress,
+} from "./lib/semantic";
 import { buildComparisonSheet } from "./lib/comparison";
 import { developToBlob } from "./lib/exportImage";
 import { createDemoImage } from "./lib/demoImage";
@@ -58,6 +64,8 @@ export default function App() {
   const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
   const [border, setBorder] = useState(false);
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  const [useModel, setUseModel] = useState(false);
+  const [modelStatus, setModelStatus] = useState<LoadProgress | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -322,19 +330,42 @@ export default function App() {
 
   // -------------------------------------------------------------- Vorschlag
 
-  const handleSuggest = useCallback(() => {
+  const handleSuggest = useCallback(async () => {
     if (!active) return;
     const stats = analyzeImage(active.bitmap);
     if (!stats) {
       setError("Das Bild liess sich nicht auswerten.");
       return;
     }
-    const vorschlag = suggestLook(stats);
+
+    // Die Szenenerkennung ist eine Zutat, keine Voraussetzung: schlaegt sie
+    // fehl, faellt der Vorschlag auf die reine Farbmessung zurueck statt
+    // ganz auszubleiben.
+    let scene = null;
+    if (useModel) {
+      try {
+        if (!isSemanticLoaded()) {
+          setModelStatus({ ratio: null, text: "Modell wird geladen" });
+          await loadSemantic(setModelStatus);
+        }
+        scene = await classifyScene(active.bitmap);
+      } catch (err) {
+        setError(
+          `Szenenerkennung nicht verfuegbar (${
+            err instanceof Error ? err.message : "unbekannter Fehler"
+          }) - Vorschlag beruht nur auf den Farbwerten.`,
+        );
+      } finally {
+        setModelStatus(null);
+      }
+    }
+
+    const vorschlag = suggestLook(stats, scene);
     setStockSlug(vorschlag.stock);
     setScannerSlug(vorschlag.scanner);
     setAdjustments(vorschlag.adjustments);
     setSuggestion(vorschlag);
-  }, [active]);
+  }, [active, useModel]);
 
   // Ein neues Bild macht den alten Vorschlag hinfaellig.
   useEffect(() => {
@@ -610,8 +641,11 @@ export default function App() {
         onFormatChange={handleFormat}
         border={border}
         onBorderChange={setBorder}
-        onSuggest={handleSuggest}
+        onSuggest={() => void handleSuggest()}
         suggestion={suggestion}
+        useModel={useModel}
+        onUseModelChange={setUseModel}
+        modelStatus={modelStatus}
         onCopyLink={() => void handleCopyLink()}
         exportStatus={exportStatus}
         canExport={active !== null}
