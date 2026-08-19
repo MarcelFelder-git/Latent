@@ -36,6 +36,8 @@ export interface FilmStock {
   iso: number;
   /** Kurzbeschreibung fuer die UI. */
   blurb: string;
+  /** Laengere Erklaerung hinter dem Fragezeichen - wofuer nimmt man den? */
+  detail: string;
 
   curve: { r: CurveParams; g: CurveParams; b: CurveParams };
 
@@ -97,6 +99,10 @@ export const STOCKS: FilmStock[] = [
     name: "Portra 400",
     iso: 400,
     blurb: "Weiche Schatten, cremige Lichter, Hauttoene bleiben stehen.",
+    detail:
+      "Der Standardfilm fuer Menschen. Sehr flache Gradation, dadurch verzeiht " +
+      "er Ueberbelichtung fast beliebig - lieber eine Blende zu hell als zu " +
+      "dunkel. Hauttoene bleiben getrennt, statt zu einer Flaeche zu verlaufen.",
     spectral: [0.3, 0.4, 0.3],
     curve: {
       // Rot reicht am weitesten in beide Richtungen. Ergebnis: Lichter laufen
@@ -119,6 +125,11 @@ export const STOCKS: FilmStock[] = [
     name: "Cinestill 800T",
     iso: 800,
     blurb: "Kunstlichtfilm ohne Lichthofschutz - Lichter gluehen rot.",
+    detail:
+      "Umgebauter Kinofilm: die schwarze Rueckschicht wurde entfernt, damit er " +
+      "sich normal entwickeln laesst. Genau deshalb streut Licht durch den " +
+      "Traeger zurueck und legt rote Hoefe um jede Lampe. Auf Kunstlicht " +
+      "abgestimmt, bei Tageslicht wird er blau.",
     spectral: [0.3, 0.4, 0.3],
     curve: {
       r: { speed: 0.08, gamma: 0.66, toe: 0.9, shoulder: 1.02 },
@@ -143,6 +154,10 @@ export const STOCKS: FilmStock[] = [
     name: "Tri-X 400",
     iso: 400,
     blurb: "Schwarzweiss, kraeftiges Korn, blaue Himmel kommen hell.",
+    detail:
+      "Der Reportagefilm schlechthin. Deutlich blauempfindlicher als das Auge, " +
+      "weshalb Himmel ohne Gelbfilter fast weiss werden. Vertraegt Pushen bis " +
+      "ISO 1600 und wird dabei nur kontrastreicher und koerniger.",
     monochrome: true,
     // Deutlich blauempfindlicher als das Auge - der klassische Grund fuer den
     // Gelbfilter in der Landschaftsfotografie.

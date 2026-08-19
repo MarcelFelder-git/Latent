@@ -9,8 +9,15 @@ import { BLUR_SRC, DEVELOP_SRC, HIGHLIGHT_SRC, SCENE_SRC, VERT_SRC } from "./sha
  * OffscreenCanvas verschieben, wenn die Voll-Aufloesung dran ist.
  */
 
-/** Vorschau-Deckel. Voll-Aufloesung kommt spaeter im Worker. */
-const MAX_EDGE = 2048;
+/** Standard-Deckel fuer die Bildschirmvorschau. */
+export const PREVIEW_MAX_EDGE = 2048;
+
+/**
+ * Deckel fuer den Export. Deutlich hoeher als die Vorschau, aber nicht
+ * unbegrenzt: der Szenenpuffer liegt in RGBA16F, ein 6000x4000-Bild braucht
+ * dafuer allein rund 190 MB. Auf dem Telefon ist das der sichere Absturz.
+ */
+export const EXPORT_MAX_EDGE = 4096;
 
 /**
  * Die Halation laeuft auf stark verkleinertem Puffer. Ein 9-Tap-Kernel kann
@@ -150,7 +157,10 @@ export class FilmRenderer {
   private colorInternal: number;
   readonly hasFloatBuffers: boolean;
 
-  constructor(private canvas: HTMLCanvasElement) {
+  constructor(
+    private canvas: HTMLCanvasElement,
+    private maxEdge: number = PREVIEW_MAX_EDGE,
+  ) {
     const gl = canvas.getContext("webgl2", {
       alpha: false,
       antialias: false,
@@ -228,7 +238,7 @@ export class FilmRenderer {
   /** Bild laden und alle Renderziele auf die passende Groesse bringen. */
   setImage(source: ImageBitmap | HTMLImageElement): void {
     const gl = this.gl;
-    const scale = Math.min(1, MAX_EDGE / Math.max(source.width, source.height));
+    const scale = Math.min(1, this.maxEdge / Math.max(source.width, source.height));
     this.imageWidth = Math.max(1, Math.round(source.width * scale));
     this.imageHeight = Math.max(1, Math.round(source.height * scale));
 

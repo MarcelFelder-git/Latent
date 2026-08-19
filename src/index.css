@@ -51,6 +51,37 @@ body {
   }
 }
 
+/*
+ * Mobil passt die Bedienleiste nicht mehr neben das Bild in eine feste
+ * Seitenhoehe - sie ist mit Voreinstellungen, Vorschaubildern und Histogramm
+ * schlicht zu hoch. Also darf die ganze Seite scrollen, und das Bild bekommt
+ * eine feste Hoehe zugewiesen. Fest und nicht als Mindesthoehe, weil sich
+ * max-height am Rahmen sonst gegen eine unbestimmte Elternhoehe nicht
+ * aufloesen laesst und Hochformatbilder wieder herauslaufen wuerden.
+ */
+@media (max-width: 899px) {
+  html,
+  body,
+  #root {
+    height: auto;
+    min-height: 100%;
+  }
+
+  .app {
+    height: auto;
+    min-height: 100%;
+  }
+
+  .viewer {
+    height: 48vh;
+    padding: 1rem;
+  }
+
+  .controls {
+    overflow-y: visible;
+  }
+}
+
 /* ---------------------------------------------------------------- Viewer */
 
 .viewer {
@@ -64,18 +95,25 @@ body {
   position: relative;
 }
 
+/*
+ * Das Seitenverhaeltnis wird per aspect-ratio inline aus der Bildgroesse
+ * gesetzt (siehe Viewer.tsx). Damit rechnet der Browser die groesstmoegliche
+ * passende Box aus, ohne dass irgendwo eine Prozenthoehe aufgeloest werden
+ * muesste - genau daran sind Hochformatbilder vorher gescheitert: sie wurden
+ * als Flex-Kind gestreckt und liefen zusaetzlich unten aus dem Bild.
+ */
 .frame {
   position: relative;
-  display: flex;
   max-width: 100%;
   max-height: 100%;
+  min-height: 0;
   box-shadow: 0 1.5rem 3rem rgb(0 0 0 / 0.5);
 }
 
 .frame canvas {
   display: block;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
 }
 
 /* Vergleich: das Original liegt deckungsgleich darueber und wird beschnitten. */
@@ -126,7 +164,7 @@ body {
   line-height: 1.6;
 }
 
-.dropzone input[type="file"] {
+.hidden-input {
   display: none;
 }
 
@@ -460,4 +498,180 @@ input[type="range"]::-moz-range-thumb {
 .actions button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------- Filmstreifen */
+
+.app.drag {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+}
+
+.filmstrip {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.375rem;
+  padding: 0 1.5rem 1rem;
+  overflow-x: auto;
+}
+
+.strip-item,
+.strip-add {
+  flex-shrink: 0;
+  width: 3.5rem;
+  height: 3.5rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.strip-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.strip-item[aria-pressed="true"] {
+  border-color: var(--accent);
+}
+
+.strip-add {
+  color: var(--text-dim);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.strip-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.dropzone-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.pick.ghost {
+  color: var(--text-dim);
+}
+
+.pick.ghost:hover {
+  color: var(--text);
+  border-color: var(--border-hi);
+}
+
+/* ---------------------------------------------------------- Voreinstellungen */
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.preset {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.3125rem 0.75rem;
+  cursor: pointer;
+}
+
+.preset:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* -------------------------------------------------- Filmauswahl mit Vorschau */
+
+.stock-row {
+  position: relative;
+}
+
+.stock {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+}
+
+.stock.plain {
+  display: block;
+}
+
+.stock-thumb {
+  flex-shrink: 0;
+  width: 3.25rem;
+  height: 3.25rem;
+  object-fit: cover;
+  border-radius: 2px;
+  display: block;
+}
+
+.stock-thumb.placeholder {
+  background: var(--surface-hi);
+}
+
+.stock-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.explain {
+  position: absolute;
+  top: 0.3125rem;
+  right: 0.3125rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.explain:hover,
+.explain[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.stock-detail {
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+  margin: 0.375rem 0 0;
+  padding: 0.625rem 0.75rem;
+  border-left: 1px solid var(--accent);
+  border-radius: 0;
+  background: var(--surface-hi);
+}
+
+/* ------------------------------------------------------------- Histogramm */
+
+.histogram {
+  margin: 0;
+}
+
+.histogram svg {
+  display: block;
+  border-radius: 3px;
+}
+
+.histogram figcaption {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-faint);
+  margin-top: 0.5rem;
 }

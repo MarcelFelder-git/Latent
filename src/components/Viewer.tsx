@@ -73,7 +73,18 @@ export function Viewer({ image, originalUrl, params, onError, canvasRef }: Viewe
 
   return (
     <div className="viewer">
-      <div className="frame" ref={frameRef}>
+      {/*
+        Das Seitenverhaeltnis steht am Rahmen, nicht am Canvas. Ein
+        max-height in Prozent braucht eine definierte Elternhoehe - die gibt
+        es in dieser Kette nicht, weshalb Hochformatbilder vorher unten aus
+        dem Bild liefen. Mit aspect-ratio rechnet der Browser die passende
+        Box selbst aus, und die Ueberlagerungen sitzen deckungsgleich.
+      */}
+      <div
+        className="frame"
+        ref={frameRef}
+        style={image ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
+      >
         <canvas ref={canvasRef} />
 
         {comparing && originalUrl && (

@@ -1,33 +1,15 @@
+import { useState, type RefObject } from "react";
 import { CurveDisplay } from "./CurveDisplay";
+import { Histogram } from "./Histogram";
+import type { Adjustments } from "../lib/film/adjustments";
+import { PRESETS, type Preset } from "../lib/film/presets";
 import { SCANNERS, type ScannerProfile } from "../lib/film/scanners";
 import { STOCKS, type FilmStock } from "../lib/film/stocks";
 
-export interface Adjustments {
-  /** Blendenstufen heller/dunkler. */
-  exposure: number;
-  /** Laenger oder kuerzer entwickeln. */
-  push: number;
-  /** -1 kuehl bis +1 warm. */
-  warmth: number;
-  /** 0 = Original, 1 = volle Emulation. */
-  strength: number;
-  grain: number;
-  halation: number;
-  vignette: number;
-}
-
-export const NEUTRAL: Adjustments = {
-  exposure: 0,
-  push: 0,
-  warmth: 0,
-  strength: 1,
-  grain: 1,
-  halation: 1,
-  vignette: 0.18,
-};
-
 interface SliderProps {
   label: string;
+  /** Fachbegriff, falls die Beschriftung bewusst laienfreundlich ist. */
+  hint?: string;
   value: number;
   min: number;
   max: number;
@@ -36,11 +18,13 @@ interface SliderProps {
   onChange: (v: number) => void;
 }
 
-function Slider({ label, value, min, max, step, format, onChange }: SliderProps) {
+function Slider({ label, hint, value, min, max, step, format, onChange }: SliderProps) {
   return (
     <div>
       <div className="slider-head">
-        <span className="slider-name">{label}</span>
+        <span className="slider-name" title={hint}>
+          {label}
+        </span>
         <span className="slider-value">{format(value)}</span>
       </div>
       <input
@@ -80,9 +64,17 @@ interface ControlsProps {
   onScannerChange: (slug: string) => void;
   adjustments: Adjustments;
   onAdjust: (next: Adjustments) => void;
+  onPreset: (preset: Preset) => void;
   onReset: () => void;
+  onUndo: () => void;
+  canUndo: boolean;
   onExport: () => void;
+  exporting: boolean;
   canExport: boolean;
+  /** Vorschaubilder je Stock-Slug, sobald berechnet. */
+  thumbnails: Record<string, string>;
+  canvasRef: RefObject<HTMLCanvasElement>;
+  renderVersion: number;
 }
 
 export function Controls({
@@ -92,10 +84,19 @@ export function Controls({
   onScannerChange,
   adjustments,
   onAdjust,
+  onPreset,
   onReset,
+  onUndo,
+  canUndo,
   onExport,
+  exporting,
   canExport,
+  thumbnails,
+  canvasRef,
+  renderVersion,
 }: ControlsProps) {
+  const [erklaert, setErklaert] = useState<string | null>(null);
+
   const set =
     <K extends keyof Adjustments>(key: K) =>
     (value: number) =>
@@ -104,24 +105,52 @@ export function Controls({
   return (
     <aside className="controls">
       <section>
+        <h2 className="section-label">Voreinstellung</h2>
+        <div className="presets">
+          {PRESETS.map((p) => (
+            <button key={p.slug} className="preset" title={p.blurb} onClick={() => onPreset(p)}>
+              {p.name}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section>
         <h2 className="section-label">Filmmaterial</h2>
         <div className="stocks">
           {STOCKS.map((s) => (
-            <button
-              key={s.slug}
-              className="stock"
-              // Ohne das meldet der Screenreader den zusammengeklebten
-              // Inhalt aller drei Spans als Namen.
-              aria-label={`${s.name}, ISO ${s.iso}`}
-              aria-pressed={s.slug === stock.slug}
-              onClick={() => onStockChange(s.slug)}
-            >
-              <span className="stock-head">
-                <span className="stock-name">{s.name}</span>
-                <span className="stock-iso">ISO {s.iso}</span>
-              </span>
-              <span className="stock-blurb">{s.blurb}</span>
-            </button>
+            <div key={s.slug} className="stock-row">
+              <button
+                className="stock"
+                // Ohne das meldet der Screenreader den zusammengeklebten
+                // Inhalt aller Spans als Namen.
+                aria-label={`${s.name}, ISO ${s.iso}`}
+                aria-pressed={s.slug === stock.slug}
+                onClick={() => onStockChange(s.slug)}
+              >
+                {thumbnails[s.slug] ? (
+                  <img className="stock-thumb" src={thumbnails[s.slug]} alt="" />
+                ) : (
+                  <span className="stock-thumb placeholder" />
+                )}
+                <span className="stock-text">
+                  <span className="stock-head">
+                    <span className="stock-name">{s.name}</span>
+                    <span className="stock-iso">ISO {s.iso}</span>
+                  </span>
+                  <span className="stock-blurb">{s.blurb}</span>
+                </span>
+              </button>
+              <button
+                className="explain"
+                aria-label={`Was ist ${s.name}?`}
+                aria-expanded={erklaert === s.slug}
+                onClick={() => setErklaert(erklaert === s.slug ? null : s.slug)}
+              >
+                ?
+              </button>
+              {erklaert === s.slug && <p className="stock-detail">{s.detail}</p>}
+            </div>
           ))}
         </div>
       </section>
@@ -145,6 +174,7 @@ export function Controls({
           />
           <Slider
             label="Push / Pull"
+            hint="Laenger oder kuerzer entwickeln: mehr Kontrast, mehr Korn"
             value={adjustments.push}
             min={-1}
             max={2}
@@ -163,6 +193,7 @@ export function Controls({
           />
           <Slider
             label="Staerke"
+            hint="Ueberblendung zwischen Original und Emulation"
             value={adjustments.strength}
             min={0}
             max={1}
@@ -173,21 +204,30 @@ export function Controls({
         </div>
       </section>
 
+      {canExport && (
+        <section>
+          <h2 className="section-label">Tonwerte</h2>
+          <Histogram canvasRef={canvasRef} version={renderVersion} />
+        </section>
+      )}
+
       <section>
         <h2 className="section-label">Labor</h2>
         <div className="stocks">
           {SCANNERS.map((s) => (
             <button
               key={s.slug}
-              className="stock"
+              className="stock plain"
               aria-label={`Scanner ${s.name}`}
               aria-pressed={s.slug === scanner.slug}
               onClick={() => onScannerChange(s.slug)}
             >
-              <span className="stock-head">
-                <span className="stock-name">{s.name}</span>
+              <span className="stock-text">
+                <span className="stock-head">
+                  <span className="stock-name">{s.name}</span>
+                </span>
+                <span className="stock-blurb">{s.blurb}</span>
               </span>
-              <span className="stock-blurb">{s.blurb}</span>
             </button>
           ))}
         </div>
@@ -206,7 +246,8 @@ export function Controls({
             onChange={set("grain")}
           />
           <Slider
-            label="Halation"
+            label="Lichtschein"
+            hint="Halation: Streulicht um helle Stellen"
             value={adjustments.halation}
             min={0}
             max={3}
@@ -215,7 +256,8 @@ export function Controls({
             onChange={set("halation")}
           />
           <Slider
-            label="Vignette"
+            label="Raender abdunkeln"
+            hint="Vignette"
             value={adjustments.vignette}
             min={0}
             max={0.6}
@@ -227,9 +269,12 @@ export function Controls({
       </details>
 
       <div className="actions">
-        <button onClick={onReset}>Zuruecksetzen</button>
-        <button onClick={onExport} disabled={!canExport}>
-          Export
+        <button onClick={onUndo} disabled={!canUndo}>
+          Zurueck
+        </button>
+        <button onClick={onReset}>Neutral</button>
+        <button onClick={onExport} disabled={!canExport || exporting}>
+          {exporting ? "Export laeuft" : "Export"}
         </button>
       </div>
     </aside>
