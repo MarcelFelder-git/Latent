@@ -117,6 +117,20 @@ export interface RenderParams {
   border?: boolean;
 }
 
+/** Was sich als Bildquelle hochladen laesst - Standbild oder Live-Video. */
+export type ImageSource = ImageBitmap | HTMLImageElement | HTMLVideoElement;
+
+/**
+ * Ein Video traegt seine Bildgroesse in videoWidth/videoHeight; width und
+ * height sind dort die Anzeigegroesse des Elements und damit nutzlos.
+ * Abgefragt wird das ueber die Eigenschaft und nicht ueber instanceof, weil
+ * es HTMLVideoElement im Worker gar nicht gibt.
+ */
+function quellGroesse(s: ImageSource): { w: number; h: number } {
+  if ("videoWidth" in s) return { w: s.videoWidth, h: s.videoHeight };
+  return { w: s.width, h: s.height };
+}
+
 /** Drei Kanalwerte auf ihren Mittelwert ziehen - fuer Schwarzweissfilm. */
 function flatten(v: [number, number, number]): [number, number, number] {
   const m = (v[0] + v[1] + v[2]) / 3;
@@ -223,8 +237,11 @@ export class FilmRenderer {
    * Renderziele neu anlegen muss. Die Textur erneut hochzuladen waere bei
    * jedem Ziehen am Ausschnitt zweistellige Megabyte an Arbeit.
    */
-  private source: ImageBitmap | HTMLImageElement | null = null;
+  private source: ImageSource | null = null;
   private crop: Crop = FULL_CROP;
+  /** Quellgroesse, mit der die Renderziele zuletzt angelegt wurden. */
+  private appliedW = 0;
+  private appliedH = 0;
 
   /**
    * Nimmt auch ein OffscreenCanvas - so laeuft derselbe Renderkern im Worker,
@@ -312,7 +329,7 @@ export class FilmRenderer {
   }
 
   /** Bild laden. Der Ausschnitt bleibt erhalten. */
-  setImage(source: ImageBitmap | HTMLImageElement): void {
+  setImage(source: ImageSource): void {
     const gl = this.gl;
     this.source = source;
 
@@ -328,6 +345,33 @@ export class FilmRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
     this.applyCrop();
+  }
+
+  /**
+   * Nur die Bilddaten erneuern, ohne Renderziele neu anzulegen. Fuer den
+   * Live-Sucher: dort kommt sechzigmal pro Sekunde ein neues Bild gleicher
+   * Groesse, und jedes Mal alle Puffer neu zu belegen waere Verschwendung.
+   */
+  updateImage(source: ImageSource): void {
+    const gl = this.gl;
+    if (!this.imageTex) {
+      this.setImage(source);
+      return;
+    }
+    this.source = source;
+
+    // Ein Video meldet seine Groesse erst, wenn die Metadaten da sind - beim
+    // ersten Aufruf steht dort oft noch 0x0. Ohne diese Nachpruefung blieben
+    // die Renderziele fuer immer auf ihrer Anfangsgroesse stehen und der
+    // Sucher waere schwarz. Faengt nebenbei den Aufloesungswechsel beim
+    // Umschalten zwischen Front- und Rueckkamera mit ab.
+    const { w, h } = quellGroesse(source);
+    if (w > 0 && h > 0 && (w !== this.appliedW || h !== this.appliedH)) {
+      this.applyCrop();
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, this.imageTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
   }
 
   /** Ausschnitt setzen und die Renderziele darauf anpassen. */
@@ -346,8 +390,12 @@ export class FilmRenderer {
   private applyCrop(): void {
     const src = this.source;
     if (!src) return;
-    const cw = src.width * this.crop.w;
-    const ch = src.height * this.crop.h;
+    const { w: sw, h: sh } = quellGroesse(src);
+    if (sw === 0 || sh === 0) return;
+    this.appliedW = sw;
+    this.appliedH = sh;
+    const cw = sw * this.crop.w;
+    const ch = sh * this.crop.h;
     const scale = Math.min(1, this.maxEdge / Math.max(cw, ch));
     this.imageWidth = Math.max(1, Math.round(cw * scale));
     this.imageHeight = Math.max(1, Math.round(ch * scale));

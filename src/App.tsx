@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CameraView } from "./components/CameraView";
 import { Controls } from "./components/Controls";
 import { Viewer } from "./components/Viewer";
 import { NEUTRAL, type Adjustments } from "./lib/film/adjustments";
@@ -65,6 +66,7 @@ export default function App() {
   const [border, setBorder] = useState(false);
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [useModel, setUseModel] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<LoadProgress | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -155,6 +157,33 @@ export default function App() {
       setError("Beispielmotiv konnte nicht erzeugt werden.");
     }
   }, [addPhoto]);
+
+  /**
+   * Eine Aufnahme wandert in dieselbe Sammlung wie ein hochgeladenes Foto -
+   * ohne Datei, also auch ohne EXIF-Daten, die es hier gar nicht gibt.
+   */
+  const addCaptured = useCallback(
+    async (bitmap: ImageBitmap) => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+        const blob = await new Promise<Blob | null>((r) =>
+          canvas.toBlob(r, "image/jpeg", 0.9),
+        );
+        const zeit = new Date().toLocaleTimeString("de-DE", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+        addPhoto(bitmap, `Aufnahme ${zeit}`, blob ? URL.createObjectURL(blob) : "", null);
+      } catch {
+        setError("Aufnahme konnte nicht abgelegt werden.");
+      }
+    },
+    [addPhoto],
+  );
 
   // Einfuegen aus der Zwischenablage - funktioniert jederzeit, auch wenn
   // schon ein Bild geladen ist.
@@ -554,7 +583,14 @@ export default function App() {
         )}
         {hinweis && !error && <p className="hinweis">{hinweis}</p>}
 
-        {active ? (
+        {cameraOpen ? (
+          <CameraView
+            params={{ stock, scanner, ...adjustments, border }}
+            onCapture={(b) => void addCaptured(b)}
+            onClose={() => setCameraOpen(false)}
+            onError={setError}
+          />
+        ) : active ? (
           <>
             <Viewer
               image={active.bitmap}
@@ -586,6 +622,14 @@ export default function App() {
               >
                 +
               </button>
+              <button
+                className="strip-add"
+                onClick={() => setCameraOpen(true)}
+                aria-label="Kamera oeffnen"
+                title="Kamera"
+              >
+                ◉
+              </button>
             </div>
           </>
         ) : (
@@ -601,6 +645,9 @@ export default function App() {
               </button>
               <button className="pick ghost" onClick={() => void loadDemo()}>
                 Beispielmotiv ansehen
+              </button>
+              <button className="pick ghost" onClick={() => setCameraOpen(true)}>
+                Kamera
               </button>
             </div>
           </div>
