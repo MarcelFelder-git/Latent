@@ -4,6 +4,7 @@ import { Histogram } from "./Histogram";
 import type { Adjustments } from "../lib/film/adjustments";
 import { CROP_FORMATS } from "../lib/film/cropFormats";
 import type { Preset } from "../lib/film/presets";
+import type { Suggestion } from "../lib/film/suggest";
 import { SCANNERS, type ScannerProfile } from "../lib/film/scanners";
 import { STOCKS, type FilmStock } from "../lib/film/stocks";
 
@@ -85,6 +86,8 @@ interface ControlsProps {
   onFormatChange: (id: string) => void;
   border: boolean;
   onBorderChange: (on: boolean) => void;
+  onSuggest: () => void;
+  suggestion: Suggestion | null;
   onCopyLink: () => void;
   /** Text waehrend eines laufenden Exports, sonst null. */
   exportStatus: string | null;
@@ -117,6 +120,8 @@ export function Controls({
   onFormatChange,
   border,
   onBorderChange,
+  onSuggest,
+  suggestion,
   onCopyLink,
   exportStatus,
   canExport,
@@ -136,6 +141,23 @@ export function Controls({
 
   return (
     <aside className="controls">
+      <section>
+        <h2 className="section-label">Vorschlag</h2>
+        <button className="suggest" onClick={onSuggest} disabled={!canExport}>
+          Passenden Film vorschlagen
+        </button>
+        {suggestion && (
+          <div className="suggestion">
+            <p className="suggestion-head">{suggestion.headline}</p>
+            <ul>
+              {suggestion.reasons.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+
       <section>
         <div className="section-head">
           <h2 className="section-label">Presets</h2>

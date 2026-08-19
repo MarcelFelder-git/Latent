@@ -12,7 +12,9 @@ import {
 import { DEFAULT_SCANNER, scannerBySlug } from "./lib/film/scanners";
 import { DEFAULT_STOCK, STOCKS, stockBySlug } from "./lib/film/stocks";
 import { cropFor, DEFAULT_FORMAT, formatById } from "./lib/film/cropFormats";
+import { suggestLook, type Suggestion } from "./lib/film/suggest";
 import { neutralizeFrom } from "./lib/film/whitebalance";
+import { analyzeImage } from "./lib/analyze";
 import { buildComparisonSheet } from "./lib/comparison";
 import { developToBlob } from "./lib/exportImage";
 import { createDemoImage } from "./lib/demoImage";
@@ -55,6 +57,7 @@ export default function App() {
   const [formatId, setFormatId] = useState(DEFAULT_FORMAT.id);
   const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
   const [border, setBorder] = useState(false);
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -316,6 +319,27 @@ export default function App() {
     },
     [active],
   );
+
+  // -------------------------------------------------------------- Vorschlag
+
+  const handleSuggest = useCallback(() => {
+    if (!active) return;
+    const stats = analyzeImage(active.bitmap);
+    if (!stats) {
+      setError("Das Bild liess sich nicht auswerten.");
+      return;
+    }
+    const vorschlag = suggestLook(stats);
+    setStockSlug(vorschlag.stock);
+    setScannerSlug(vorschlag.scanner);
+    setAdjustments(vorschlag.adjustments);
+    setSuggestion(vorschlag);
+  }, [active]);
+
+  // Ein neues Bild macht den alten Vorschlag hinfaellig.
+  useEffect(() => {
+    setSuggestion(null);
+  }, [activeId]);
 
   // --------------------------------------------------------------- Presets
 
@@ -586,6 +610,8 @@ export default function App() {
         onFormatChange={handleFormat}
         border={border}
         onBorderChange={setBorder}
+        onSuggest={handleSuggest}
+        suggestion={suggestion}
         onCopyLink={() => void handleCopyLink()}
         exportStatus={exportStatus}
         canExport={active !== null}
