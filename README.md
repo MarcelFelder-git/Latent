@@ -262,3 +262,5 @@ npm run preview   # serve the production build locally
 
 The scene recognition is optional and downloads its model on first use. Everything
 else works immediately and offline.
+#   f i l m - l a b  
+ 
