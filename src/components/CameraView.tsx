@@ -10,6 +10,10 @@ interface CameraViewProps {
 
 type Facing = "environment" | "user";
 
+/** Vorlaufzeiten in Sekunden. 0 heisst: sofort ausloesen. */
+const VORLAUF = [0, 3, 10] as const;
+type Vorlauf = (typeof VORLAUF)[number];
+
 /**
  * Live-Sucher, der schon durch die Filmemulation laeuft.
  *
@@ -28,16 +32,39 @@ export function CameraView({ params, onCapture, onClose, onError }: CameraViewPr
   const rendererRef = useRef<FilmRenderer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<number>(0);
+  const uhrRef = useRef<number>(0);
 
   // Die Schleife soll bei jeder Reglerbewegung die neuen Werte sehen, ohne
   // dass sie dafuer neu gestartet werden muesste.
   const paramsRef = useRef(params);
   paramsRef.current = params;
 
+  /*
+   * Dasselbe fuer die Rueckmeldungen nach oben. Der Aufrufer uebergibt sie als
+   * Pfeilfunktionen, die bei jedem Render neu entstehen - stuenden sie in den
+   * Abhaengigkeiten des Effekts weiter unten, wuerde die Kamera bei jeder
+   * Reglerbewegung neu angefordert.
+   *
+   * Nachgemessen, bevor es hier stand: drei Bewegungen am Belichtungsregler
+   * haben getUserMedia zweimal erneut aufgerufen. Auf dem Telefon ist das ein
+   * schwarzes Aufblitzen samt neuer Fokus- und Belichtungssuche - ausgerechnet
+   * beim Einstellen, wofuer der Live-Sucher ueberhaupt da ist.
+   */
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const onCaptureRef = useRef(onCapture);
+  onCaptureRef.current = onCapture;
+
   const [facing, setFacing] = useState<Facing>("environment");
   const [ready, setReady] = useState(false);
   const [count, setCount] = useState(0);
   const [seitenverhaeltnis, setSeitenverhaeltnis] = useState("4 / 3");
+  const [raster, setRaster] = useState(false);
+  const [vorlauf, setVorlauf] = useState<Vorlauf>(0);
+  const [restzeit, setRestzeit] = useState<number | null>(null);
+  const [blitz, setBlitz] = useState(false);
 
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -52,22 +79,37 @@ export function CameraView({ params, onCapture, onClose, onError }: CameraViewPr
       // Ohne sicheren Kontext gibt es mediaDevices gar nicht - das ist keine
       // Ablehnung durch den Nutzer, sondern eine Vorgabe des Browsers.
       if (!navigator.mediaDevices?.getUserMedia) {
-        onError(
+        onErrorRef.current(
           "Kamerazugriff braucht eine sichere Verbindung (https oder localhost).",
         );
-        onClose();
+        onCloseRef.current();
         return;
       }
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: facing,
-            width: { ideal: 1920 },
-            height: { ideal: 1440 },
-          },
-          audio: false,
-        });
+        // Erst die Wunschaufloesung versuchen. Schlaegt sie fehl, weil die
+        // Kamera sie nicht liefern kann, bleibt nur die Richtung uebrig -
+        // lieber ein kleineres Bild als gar keins. Genau das passiert auf
+        // aelteren Geraeten und bei Objektiven mit fester Aufloesung.
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: facing,
+              width: { ideal: 1920 },
+              height: { ideal: 1440 },
+            },
+            audio: false,
+          });
+        } catch (err) {
+          const name = err instanceof DOMException ? err.name : "";
+          if (name !== "OverconstrainedError" && name !== "NotFoundError") throw err;
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: facing },
+            audio: false,
+          });
+        }
+
         if (abgebrochen) {
           stream.getTracks().forEach((t) => t.stop());
           return;
@@ -106,21 +148,23 @@ export function CameraView({ params, onCapture, onClose, onError }: CameraViewPr
         setReady(true);
       } catch (err) {
         const name = err instanceof DOMException ? err.name : "";
-        onError(
+        onErrorRef.current(
           name === "NotAllowedError"
             ? "Kamerazugriff wurde abgelehnt. Im Browser wieder freigeben und erneut versuchen."
             : name === "NotFoundError"
               ? "Keine Kamera gefunden."
               : `Kamera nicht verfuegbar (${err instanceof Error ? err.message : "unbekannt"}).`,
         );
-        onClose();
+        onCloseRef.current();
       }
     })();
 
     return () => {
       abgebrochen = true;
     };
-  }, [facing, onClose, onError, stopStream]);
+    // Absichtlich nur die Richtung: alles andere wuerde die Kamera neu
+    // anfordern, ohne dass sich an ihr etwas geaendert haette.
+  }, [facing, stopStream]);
 
   // Zeichenschleife.
   useEffect(() => {
@@ -143,10 +187,30 @@ export function CameraView({ params, onCapture, onClose, onError }: CameraViewPr
     return () => cancelAnimationFrame(frameRef.current);
   }, [ready]);
 
+  /*
+   * iOS haelt das Video an, sobald die App in den Hintergrund geht - beim
+   * Zurueckkommen steht dann ein eingefrorenes Bild im Sucher, ohne dass
+   * irgendetwas einen Fehler gemeldet haette. Also beim Zurueckkommen einmal
+   * anstossen.
+   */
+  useEffect(() => {
+    const wieder = () => {
+      const video = videoRef.current;
+      if (!document.hidden && video && video.paused) {
+        void video.play().catch(() => {
+          /* Ohne Nutzergeste kann das abgelehnt werden - dann bleibt es stehen. */
+        });
+      }
+    };
+    document.addEventListener("visibilitychange", wieder);
+    return () => document.removeEventListener("visibilitychange", wieder);
+  }, []);
+
   // Alles freigeben, wenn die Ansicht verschwindet.
   useEffect(() => {
     return () => {
       cancelAnimationFrame(frameRef.current);
+      window.clearTimeout(uhrRef.current);
       rendererRef.current?.dispose();
       rendererRef.current = null;
       streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -154,13 +218,13 @@ export function CameraView({ params, onCapture, onClose, onError }: CameraViewPr
     };
   }, []);
 
-  const ausloesen = useCallback(async () => {
+  const aufnehmen = useCallback(async () => {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0) return;
     try {
       // Ueber ein Canvas statt direkt aus dem Video, weil die Frontkamera
       // gespiegelt angezeigt wird und das Ergebnis dazu passen muss - sonst
-      // steht Schrift im Bild plotzlich seitenverkehrt.
+      // steht Schrift im Bild ploetzlich seitenverkehrt.
       const canvas = document.createElement("canvas");
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -172,12 +236,46 @@ export function CameraView({ params, onCapture, onClose, onError }: CameraViewPr
       }
       ctx.drawImage(video, 0, 0);
       const bitmap = await createImageBitmap(canvas);
-      onCapture(bitmap);
+      onCaptureRef.current(bitmap);
       setCount((c) => c + 1);
+      // Kurzes Aufhellen als Rueckmeldung. Ohne Ausloeserton und ohne
+      // Vibration bleibt sonst offen, ob der Druck angekommen ist.
+      setBlitz(true);
+      window.setTimeout(() => setBlitz(false), 140);
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Aufnahme fehlgeschlagen.");
+      onErrorRef.current(
+        err instanceof Error ? err.message : "Aufnahme fehlgeschlagen.",
+      );
     }
-  }, [facing, onCapture, onError]);
+  }, [facing]);
+
+  /** Ausloeser: entweder sofort oder nach dem eingestellten Vorlauf. */
+  const ausloesen = useCallback(() => {
+    // Ein zweiter Druck waehrend des Vorlaufs bricht ab. Das erwartet man von
+    // jeder Kamera-App und ist billiger als ein eigener Abbrechen-Knopf.
+    if (restzeit !== null) {
+      window.clearTimeout(uhrRef.current);
+      setRestzeit(null);
+      return;
+    }
+    if (vorlauf === 0) {
+      void aufnehmen();
+      return;
+    }
+    let rest: number = vorlauf;
+    setRestzeit(rest);
+    const tick = () => {
+      rest -= 1;
+      if (rest <= 0) {
+        setRestzeit(null);
+        void aufnehmen();
+        return;
+      }
+      setRestzeit(rest);
+      uhrRef.current = window.setTimeout(tick, 1000);
+    };
+    uhrRef.current = window.setTimeout(tick, 1000);
+  }, [aufnehmen, restzeit, vorlauf]);
 
   return (
     <div className="viewer">
@@ -188,12 +286,44 @@ export function CameraView({ params, onCapture, onClose, onError }: CameraViewPr
         />
         {!ready && <p className="camera-warten">Kamera wird geoeffnet…</p>}
 
+        {/* Drittelraster. Liegt ueber dem Bild und faengt keine Klicks ab. */}
+        {raster && ready && (
+          <div className="camera-raster" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+        )}
+
+        {restzeit !== null && (
+          <div className="camera-countdown" aria-live="assertive">
+            {restzeit}
+          </div>
+        )}
+        {blitz && <div className="camera-blitz" aria-hidden="true" />}
+
         <div className="frame-tools">
           <button
             className="compare-toggle"
             onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}
           >
             {facing === "user" ? "Rueckkamera" : "Frontkamera"}
+          </button>
+          <button
+            className="compare-toggle"
+            aria-pressed={raster}
+            onClick={() => setRaster((r) => !r)}
+          >
+            Raster
+          </button>
+          <button
+            className="compare-toggle"
+            onClick={() =>
+              setVorlauf((v) => VORLAUF[(VORLAUF.indexOf(v) + 1) % VORLAUF.length])
+            }
+          >
+            {vorlauf === 0 ? "Vorlauf aus" : `${vorlauf} s`}
           </button>
           <button className="compare-toggle" onClick={onClose}>
             Schliessen
@@ -202,8 +332,14 @@ export function CameraView({ params, onCapture, onClose, onError }: CameraViewPr
 
         <div className="camera-leiste">
           {count > 0 && <span className="camera-zaehler">{count} aufgenommen</span>}
-          <button className="ausloeser" onClick={() => void ausloesen()} disabled={!ready}>
-            <span className="sr-only">Ausloesen</span>
+          <button
+            className={`ausloeser${restzeit !== null ? " laeuft" : ""}`}
+            onClick={ausloesen}
+            disabled={!ready}
+          >
+            <span className="sr-only">
+              {restzeit !== null ? "Vorlauf abbrechen" : "Ausloesen"}
+            </span>
           </button>
         </div>
       </div>

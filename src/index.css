@@ -1299,3 +1299,112 @@ input[type="range"]::-moz-range-thumb {
 .controls {
   padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
 }
+
+/* ------------------------------------------------------------ Sucherhilfen */
+
+/*
+ * Drittelraster. Zwei senkrechte und zwei waagerechte Linien, aufgeteilt per
+ * Raster statt einzeln positioniert - so bleiben die Abstaende exakt, egal
+ * welches Seitenverhaeltnis die Kamera liefert.
+ *
+ * Halbtransparent weiss und nur einen Pixel breit: eine Hilfslinie, die man
+ * staerker sieht als das Motiv, hilft beim Bildaufbau nicht.
+ */
+.camera-raster {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.camera-raster span {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.camera-raster span:nth-child(1),
+.camera-raster span:nth-child(2) {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.camera-raster span:nth-child(1) {
+  left: 33.333%;
+}
+
+.camera-raster span:nth-child(2) {
+  left: 66.667%;
+}
+
+.camera-raster span:nth-child(3),
+.camera-raster span:nth-child(4) {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.camera-raster span:nth-child(3) {
+  top: 33.333%;
+}
+
+.camera-raster span:nth-child(4) {
+  top: 66.667%;
+}
+
+/* Der Vorlauf muss aus Armlaenge lesbar sein - deshalb so gross. */
+.camera-countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: clamp(4rem, 22vmin, 9rem);
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/*
+ * Kurzes Aufhellen beim Ausloesen. Der Browser gibt uns weder Ausloeserton
+ * noch Vibration, also ist das die einzige Rueckmeldung, dass der Druck
+ * angekommen ist.
+ */
+.camera-blitz {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.75);
+  pointer-events: none;
+  animation: blitz 140ms ease-out forwards;
+}
+
+@keyframes blitz {
+  to {
+    opacity: 0;
+  }
+}
+
+/* Waehrend der Vorlauf laeuft, pulst der Ausloeser - und ein zweiter Druck
+   bricht ab. */
+.ausloeser.laeuft {
+  animation: pulsieren 1s ease-in-out infinite;
+}
+
+@keyframes pulsieren {
+  50% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .camera-blitz {
+    animation-duration: 1ms;
+  }
+
+  .ausloeser.laeuft {
+    animation: none;
+    opacity: 0.6;
+  }
+}

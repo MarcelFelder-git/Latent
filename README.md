@@ -3,6 +3,10 @@
 *The latent image is the invisible picture that exists in exposed film
 before development. This is where it becomes visible.*
 
+<!-- Nach dem Vercel-Deploy: die naechste Zeile einkommentieren und die URL
+     eintragen. Dann steht der Live-Link ganz oben, wo er hingehoert. -->
+<!-- **[Try it live](https://DEINE-URL.vercel.app)** &nbsp;·&nbsp; [Source](https://github.com/MarcelFelder-git/film-lab) -->
+
 A **film emulation darkroom that runs entirely in the browser**. Drop in a photo,
 pick an emulsion, and watch it develop — characteristic curves per colour layer,
 wavelength-dependent halation, grain that responds to exposure, scanner profiles.
@@ -36,7 +40,21 @@ Load a photo — by drag & drop, paste, file picker, the built-in sample scene, 
 camera. Choose a film stock and a lab scanner. Everything renders live on the GPU;
 the export runs at full resolution in a Web Worker.
 
-<!-- TODO: Screenshots hier einfuegen -->
+<!--
+  SCREENSHOTS
+  Bilder unter docs/ ablegen, dann diesen Block einkommentieren - die Pfade
+  stimmen dann schon. Welche Aufnahmen sich lohnen, steht in docs/README.md.
+
+  Bewusst noch auskommentiert: fehlende Bilddateien zeigt GitHub als kaputtes
+  Symbol an, und das sieht schlechter aus als ein Abschnitt, der noch fehlt.
+
+![Latent mit einem entwickelten Foto](docs/screenshot-app.png)
+
+| Vorher / Nachher | Kennlinie und Histogramm |
+|---|---|
+| ![Vergleichsregler](docs/screenshot-vergleich.png) | ![Kennlinie](docs/screenshot-kennlinie.png) |
+
+-->
 
 ## The Interesting Part: How Film Actually Works
 
@@ -113,6 +131,11 @@ sprocket holes and edge markings.
 **Understanding what you see** — the characteristic curve drawn live from the same
 parameters the shader is running, a histogram with clipping warning, a draggable
 before/after split, and a 1:1 view (you cannot judge grain in a fitted preview).
+
+**Camera** — a live viewfinder that already runs through the emulation, so you
+frame the picture you are going to get. Thirds grid, self-timer, front and back.
+What gets saved is the *unprocessed* frame, not what the viewfinder showed —
+otherwise the choice of film would be baked in at the moment of the shutter.
 
 **Workflow** — presets including your own, undo, multiple photos side by side, batch
 export, a comparison sheet of every stock in one file, look sharing via URL, and
@@ -243,6 +266,8 @@ ticker during export: 100 of 100 expected ticks, the main thread never blocked.
 Requires Node 20+.
 
 ```bash
+git clone https://github.com/MarcelFelder-git/film-lab.git
+cd film-lab
 npm install
 npm run dev
 ```
@@ -258,9 +283,9 @@ npm run preview   # serve the production build locally
 
 ## Live Demo
 
-<!-- TODO: Vercel-URL nach dem Deploy eintragen -->
+<!-- Nach dem Deploy hier die Vercel-URL eintragen und die Zeile darunter loeschen. -->
+Deploying to Vercel; the link lands here.
 
-The scene recognition is optional and downloads its model on first use. Everything
-else works immediately and offline.
-#   f i l m - l a b  
- 
+Open it on a phone and add it to the home screen — it installs and then runs
+offline. The scene recognition is the one optional extra: it downloads its model
+on first use. Everything else works immediately, with no network at all.
