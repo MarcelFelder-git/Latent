@@ -23,6 +23,7 @@ build something where the hard part is visible on screen.
 ## Table of Contents
 
 - [What It Does](#what-it-does)
+- [Showcase](#showcase)
 - [The Interesting Part: How Film Actually Works](#the-interesting-part-how-film-actually-works)
 - [The Pipeline](#the-pipeline)
 - [Features](#features)
@@ -40,21 +41,20 @@ Load a photo — by drag & drop, paste, file picker, the built-in sample scene, 
 camera. Choose a film stock and a lab scanner. Everything renders live on the GPU;
 the export runs at full resolution in a Web Worker.
 
-<!--
-  SCREENSHOTS
-  Bilder unter docs/ ablegen, dann diesen Block einkommentieren - die Pfade
-  stimmen dann schon. Welche Aufnahmen sich lohnen, steht in docs/README.md.
+## Showcase
 
-  Bewusst noch auskommentiert: fehlende Bilddateien zeigt GitHub als kaputtes
-  Symbol an, und das sieht schlechter aus als ein Abschnitt, der noch fehlt.
+### Screenshots
 
-![Latent mit einem entwickelten Foto](docs/screenshot-app.png)
+<p align="center">
+  <img src="latent_screenshot_01.JPG" alt="SolarSurge Screenshot 1" width="80%"/>
+</p>
+<p align="center">
+  <img src="latent_screenshot_02.JPG" alt="SolarSurge Screenshot 2" width="80%"/>
+</p>
+<p align="center">
+  <img src="latent_screenshot_03.JPG" alt="SolarSurge Screenshot 3" width="80%"/>
+</p>
 
-| Vorher / Nachher | Kennlinie und Histogramm |
-|---|---|
-| ![Vergleichsregler](docs/screenshot-vergleich.png) | ![Kennlinie](docs/screenshot-kennlinie.png) |
-
--->
 
 ## The Interesting Part: How Film Actually Works
 
